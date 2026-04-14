@@ -1,0 +1,642 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0"
+    />
+    <script>
+      (function () {
+        if (window.location.protocol === "file:") {
+          window.location.replace("http://127.0.0.1:5173/");
+        }
+      })();
+    </script>
+    <title>AI课程工厂 · 一键分发平台</title>
+    <meta
+      name="description"
+      content="面向课程内容多平台分发的一键工作台，支持素材上传、平台选择、任务编排与分发追踪。"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div class="page-bg" aria-hidden="true">
+      <span class="orb orb-a"></span>
+      <span class="orb orb-b"></span>
+      <span class="orb orb-c"></span>
+      <span class="grid-overlay"></span>
+    </div>
+
+    <div class="site-home" id="siteHome">
+      <header class="home-header panel">
+        <div class="brand-card home-brand">
+          <div class="brand-mark">AI</div>
+          <div>
+            <p class="eyebrow">企业官网</p>
+            <h1>AI课程工厂分发平台</h1>
+          </div>
+        </div>
+        <nav class="home-nav" aria-label="官网导航">
+          <a href="#features">功能亮点</a>
+          <a href="#workflow-preview">分发流程</a>
+          <a href="#contact">联系说明</a>
+          <a class="home-nav-cta" href="#login">进入工作台</a>
+        </nav>
+      </header>
+
+      <section class="hero home-hero">
+        <div class="hero-copy panel">
+          <p class="hero-kicker">多平台内容分发中台</p>
+          <h3>把内容准备、授权发布和结果追踪，收拢到一个正式可用的官网入口</h3>
+          <p class="hero-desc">
+            面向企业课程内容场景，统一管理素材、账号授权和发布任务，支持公开官网展示与内部工作台切换，方便审核、协作和后续扩展真实平台能力。
+          </p>
+          <div class="hero-actions">
+            <a class="primary-button" href="#login">进入工作台</a>
+            <a class="ghost-button" href="#features">查看功能</a>
+          </div>
+          <div class="hero-tags">
+            <span>抖音</span>
+            <span>视频号</span>
+            <span>小红书</span>
+            <span>B站</span>
+            <span>企业官网</span>
+          </div>
+        </div>
+
+        <div class="hero-visual panel">
+          <div class="flow-diagram" aria-hidden="true">
+            <div class="flow-node origin">
+              <span>企业素材</span>
+            </div>
+            <div class="flow-node mid">
+              <span>统一编排</span>
+            </div>
+            <div class="flow-node platform douyin">抖音</div>
+            <div class="flow-node platform wechat">视频号</div>
+            <div class="flow-node platform redbook">B站</div>
+            <div class="flow-line line-a"></div>
+            <div class="flow-line line-b"></div>
+            <div class="flow-line line-c"></div>
+            <div class="flow-line line-d"></div>
+          </div>
+          <div class="hero-visual-footer">
+            <div>
+              <span>适合场景</span>
+              <strong>课程内容分发</strong>
+            </div>
+            <div>
+              <span>支持能力</span>
+              <strong>授权 / 任务 / 日志</strong>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="metrics-grid home-metrics" id="features" aria-label="功能亮点">
+        <article class="metric-card panel">
+          <p>统一素材池</p>
+          <strong>1 套</strong>
+          <span>视频、封面、简介和标签统一整理，减少重复上传。</span>
+        </article>
+        <article class="metric-card panel">
+          <p>账号授权</p>
+          <strong>可视化</strong>
+          <span>平台授权状态清晰可见，方便审批和维护。</span>
+        </article>
+        <article class="metric-card panel">
+          <p>任务编排</p>
+          <strong>批量化</strong>
+          <span>按模板生成分发任务，降低人工逐个平台操作。</span>
+        </article>
+        <article class="metric-card panel">
+          <p>结果追踪</p>
+          <strong>留痕</strong>
+          <span>任务进度、异常重试和操作日志都能回看。</span>
+        </article>
+      </section>
+
+      <section class="workspace-grid home-workflow" id="workflow-preview">
+        <article class="panel workflow-panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">上线路径</p>
+              <h3>四步完成内容分发</h3>
+            </div>
+          </div>
+          <div class="stepper">
+            <div class="step active">
+              <span>1</span>
+              <div>
+                <strong>准备素材</strong>
+                <p>上传视频、封面和文案，统一整理到素材池。</p>
+              </div>
+            </div>
+            <div class="step">
+              <span>2</span>
+              <div>
+                <strong>完成授权</strong>
+                <p>绑定抖音等平台账号，明确可发布范围。</p>
+              </div>
+            </div>
+            <div class="step">
+              <span>3</span>
+              <div>
+                <strong>创建任务</strong>
+                <p>按平台模板生成分发任务，自动进入队列。</p>
+              </div>
+            </div>
+            <div class="step">
+              <span>4</span>
+              <div>
+                <strong>追踪结果</strong>
+                <p>查看进度、失败原因和重试记录，方便留痕审计。</p>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel sidebar-card home-info" id="contact">
+          <p class="eyebrow">官网说明</p>
+          <h3>适合企业对外展示</h3>
+          <ul class="goal-list">
+            <li>官网地址建议使用可公开访问的 HTTPS 域名。</li>
+            <li>备案主体尽量与开发者主体一致。</li>
+            <li>若官网需要登录，请在备注中写测试账号。</li>
+            <li>进入工作台后，再进行平台授权与发布操作。</li>
+          </ul>
+          <div class="home-contact">
+            <strong>上线建议</strong>
+            <p>请在正式上线前补充公司邮箱、电话、隐私政策和用户协议链接。</p>
+            <p>如需接入正式环境，建议把官网域名、回调地址和 `APP_FRONTEND_URL` 统一到同一套 HTTPS 域名下。</p>
+          </div>
+        </article>
+      </section>
+
+      <section class="home-footer panel">
+        <div>
+          <p class="eyebrow">备案与合规</p>
+          <h3>公开官网和内部工作台分开展示，更适合审核和交付。</h3>
+        </div>
+        <a class="ghost-button" href="#login">去工作台登录</a>
+      </section>
+    </div>
+
+    <div class="auth-screen" id="login">
+      <section class="auth-card panel" aria-labelledby="authTitle">
+        <div class="brand-card auth-brand">
+          <div class="brand-mark">AI</div>
+          <div>
+            <p class="eyebrow">系统登录</p>
+            <h1 id="authTitle">先登录，再授权，再发布</h1>
+          </div>
+        </div>
+        <p class="auth-copy">
+          这是工作台的访问入口。登录后才能进入平台授权、素材管理和分发队列，避免未授权操作。
+        </p>
+        <form class="auth-form" id="loginForm">
+          <label class="field">
+            <span>账号</span>
+            <input
+              id="loginUsername"
+              name="username"
+              type="text"
+              autocomplete="username"
+              placeholder="admin"
+              required
+            />
+          </label>
+          <label class="field">
+            <span>密码</span>
+            <input
+              id="loginPassword"
+              name="password"
+              type="password"
+              autocomplete="current-password"
+              placeholder="admin123"
+              required
+            />
+          </label>
+          <button class="primary-button auth-submit" id="loginButton" type="submit">
+            登录进入工作台
+          </button>
+          <p class="auth-note">
+            默认演示账号：admin / admin123。正式环境建议改成环境变量。
+          </p>
+          <p class="auth-error" id="loginError" hidden></p>
+        </form>
+      </section>
+    </div>
+
+    <div class="app-shell" id="appShell" hidden>
+      <aside class="sidebar">
+        <div class="brand-card">
+          <div class="brand-mark">AI</div>
+          <div>
+            <p class="eyebrow">AI课程工厂</p>
+            <h1>一键分发平台</h1>
+          </div>
+        </div>
+
+        <nav class="side-nav" aria-label="主导航">
+          <a class="nav-item active" href="#overview">总览</a>
+          <a class="nav-item" href="#workflow">任务编排</a>
+          <a class="nav-item" href="#platforms">平台账号</a>
+          <a class="nav-item" href="#queue">分发队列</a>
+          <a class="nav-item" href="#logs">操作日志</a>
+        </nav>
+
+        <section class="sidebar-card">
+          <p class="eyebrow">改造目标</p>
+          <ul class="goal-list">
+            <li>一次上传，统一分发</li>
+            <li>平台模板化，减少重复配置</li>
+            <li>任务可追踪，异常可重试</li>
+            <li>账号分层，降低安全风险</li>
+          </ul>
+        </section>
+
+        <section class="sidebar-card accent">
+          <p class="eyebrow">当前状态</p>
+          <div class="sidebar-metric">
+            <strong id="sidebarTaskCount">0</strong>
+            <span>今日任务</span>
+          </div>
+          <div class="sidebar-metric">
+            <strong id="sidebarSuccessRate">0%</strong>
+            <span>成功率</span>
+          </div>
+        </section>
+      </aside>
+
+      <main class="main">
+        <header class="topbar" id="overview">
+          <div class="topbar-copy">
+            <p class="eyebrow">分发中台 / 前端原型</p>
+            <h2>把内容准备、平台选择、任务生成和结果回看放进同一个工作台</h2>
+            <p>
+              针对当前手动上传、重复登录、多平台逐个发布的痛点，先用前端工作台把流程收拢起来，后续可直接接入后端发布接口。
+            </p>
+          </div>
+          <div class="topbar-tools">
+            <label class="search-box" aria-label="搜索任务">
+              <span>搜索</span>
+              <input
+                id="searchInput"
+                type="search"
+                placeholder="任务、平台、标题"
+              />
+            </label>
+            <span class="status-pill warning" id="apiStatusPill">后端连接中</span>
+            <span class="status-pill success" id="currentUserPill">未登录</span>
+            <button class="ghost-button" id="logoutButton" type="button">
+              退出登录
+            </button>
+            <button class="ghost-button" id="resetDemoButton" type="button">
+              重置演示
+            </button>
+          </div>
+        </header>
+
+        <section class="hero">
+          <div class="hero-copy panel">
+            <p class="hero-kicker">一键分发工作流</p>
+            <h3>真正的一次准备，多端发出</h3>
+            <p class="hero-desc">
+              通过统一素材池、平台账号状态、发布模板和任务流转，把原来分散在蚁小二中的人工操作收束为一个可视化控制台。
+            </p>
+            <div class="hero-actions">
+              <button class="primary-button" type="button" id="jumpToFormButton">
+                新建分发任务
+              </button>
+              <div class="hero-tags">
+                <span>抖音</span>
+                <span>视频号</span>
+                <span>小红书</span>
+                <span>快手</span>
+                <span>B站</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="hero-visual panel">
+            <div class="flow-diagram" aria-hidden="true">
+              <div class="flow-node origin">
+                <span>素材池</span>
+              </div>
+              <div class="flow-node mid">
+                <span>任务编排</span>
+              </div>
+              <div class="flow-node platform douyin">抖音</div>
+              <div class="flow-node platform wechat">视频号</div>
+              <div class="flow-node platform redbook">小红书</div>
+              <div class="flow-line line-a"></div>
+              <div class="flow-line line-b"></div>
+              <div class="flow-line line-c"></div>
+              <div class="flow-line line-d"></div>
+            </div>
+            <div class="hero-visual-footer">
+              <div>
+                <span>当前已连接平台</span>
+                <strong id="connectedPlatformCount">0</strong>
+              </div>
+              <div>
+                <span>待处理素材</span>
+                <strong id="fileCount">0</strong>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="metrics-grid" aria-label="核心指标">
+          <article class="metric-card panel">
+            <p>今日分发任务</p>
+            <strong id="metricTaskCount">0</strong>
+            <span>包含自动创建与手工补发</span>
+          </article>
+          <article class="metric-card panel">
+            <p>平台接入数</p>
+            <strong id="metricPlatformCount">0</strong>
+            <span>已授权账号与可用通道</span>
+          </article>
+          <article class="metric-card panel">
+            <p>成功率</p>
+            <strong id="metricSuccessRate">0%</strong>
+            <span>基于当前队列状态实时计算</span>
+          </article>
+          <article class="metric-card panel">
+            <p>异常告警</p>
+            <strong id="metricFailureCount">0</strong>
+            <span>可重试与需要人工介入的任务</span>
+          </article>
+        </section>
+
+        <section class="workspace-grid">
+          <article class="panel workflow-panel" id="workflow">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">任务编排</p>
+                <h3>从素材到分发，一屏完成</h3>
+              </div>
+              <div class="status-pill success">流程已打通</div>
+            </div>
+
+            <div class="stepper" aria-label="分发步骤">
+              <div class="step active">
+                <span>1</span>
+                <div>
+                  <strong>上传素材</strong>
+                  <p>视频、封面、简介都可入库</p>
+                </div>
+              </div>
+              <div class="step active">
+                <span>2</span>
+                <div>
+                  <strong>选择平台</strong>
+                  <p>按任务勾选渠道组合</p>
+                </div>
+              </div>
+              <div class="step">
+                <span>3</span>
+                <div>
+                  <strong>生成任务</strong>
+                  <p>统一排队并自动流转</p>
+                </div>
+              </div>
+              <div class="step">
+                <span>4</span>
+                <div>
+                  <strong>查看结果</strong>
+                  <p>日志、进度、失败重试</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="upload-zone" id="dropZone">
+              <input
+                id="fileInput"
+                class="file-input"
+                type="file"
+                multiple
+                accept="video/*,image/*,.pdf,.doc,.docx"
+              />
+              <div class="upload-copy">
+                <div class="upload-icon">+</div>
+                <h4>拖拽上传素材</h4>
+                <p>或点击此区域选择课程视频、封面图、简介附件</p>
+                <small>支持 mp4 / mov / jpg / png / pdf 等常见格式</small>
+              </div>
+            </div>
+
+            <div class="file-list-wrap">
+              <div class="section-head">
+                <h4>素材池</h4>
+                <span id="materialHint">暂无文件</span>
+              </div>
+              <div class="file-list" id="fileList"></div>
+            </div>
+
+            <div class="platform-section" id="platforms">
+              <div class="section-head">
+                <h4>选择目标平台</h4>
+                <span id="selectedPlatformSummary">已选 0 个平台</span>
+              </div>
+              <div class="platform-grid" id="platformGrid"></div>
+            </div>
+
+            <form class="task-form" id="taskForm">
+              <div class="section-head">
+                <h4>发布配置</h4>
+                <span>支持立即发布和定时发布</span>
+              </div>
+              <label class="field">
+                <span>分发标题</span>
+                <input
+                  name="title"
+                  type="text"
+                  placeholder="例如：AI绘画公开课 · 第三讲"
+                  required
+                />
+              </label>
+              <label class="field">
+                <span>简介模板</span>
+                <textarea
+                  name="summary"
+                  rows="4"
+                  placeholder="请输入统一简介、口播文案或平台差异化说明"
+                ></textarea>
+              </label>
+              <div class="field-row">
+                <label class="field">
+                  <span>标签</span>
+                  <input
+                    name="tags"
+                    type="text"
+                    placeholder="AI课程, 内容工厂, 短视频"
+                  />
+                </label>
+                <label class="field">
+                  <span>发布时间</span>
+                  <input name="schedule" type="datetime-local" />
+                </label>
+              </div>
+              <div class="field-row">
+                <label class="field">
+                  <span>发布模式</span>
+                  <select name="mode">
+                    <option value="立即发布">立即发布</option>
+                    <option value="定时发布">定时发布</option>
+                    <option value="先审后发">先审后发</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>封面策略</span>
+                  <select name="cover">
+                    <option value="自动提取封面">自动提取封面</option>
+                    <option value="上传指定封面">上传指定封面</option>
+                    <option value="平台自适应">平台自适应</option>
+                  </select>
+                </label>
+              </div>
+              <button class="primary-button submit-button" type="submit">
+                一键生成分发任务
+              </button>
+              <p class="form-note">
+                系统会自动把所选素材与平台组合生成任务，并在队列中完成流转。
+              </p>
+            </form>
+          </article>
+
+          <div class="side-stack">
+            <article class="panel" id="platformStatusPanel">
+              <div class="panel-head">
+                <div>
+                  <p class="eyebrow">平台账号</p>
+                  <h3>连接状态与分发通道</h3>
+                </div>
+              </div>
+              <form class="auth-form compact" id="platformAuthForm">
+                <div class="field-row">
+                  <label class="field">
+                    <span>平台</span>
+                    <select id="authPlatformSelect" name="platformId"></select>
+                  </label>
+                  <label class="field">
+                    <span>授权方式</span>
+                    <select name="authMethod">
+                      <option value="oauth">官方授权</option>
+                      <option value="manual">手工凭证</option>
+                      <option value="demo">本地演示</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="field-row">
+                  <label class="field">
+                    <span>账号名称</span>
+                    <input
+                      name="accountName"
+                      type="text"
+                      placeholder="例如：AI课程工厂运营号"
+                    />
+                  </label>
+                  <label class="field">
+                    <span>凭证标识</span>
+                    <input name="tokenHint" type="text" placeholder="例如：token-1234" />
+                  </label>
+                </div>
+                <div class="field-row">
+                  <label class="field">
+                    <span>过期时间</span>
+                    <input name="expiresAt" type="datetime-local" />
+                  </label>
+                  <label class="field">
+                    <span>授权备注</span>
+                    <input name="authNotes" type="text" placeholder="可选备注" />
+                  </label>
+                </div>
+                <div class="task-actions">
+                  <button class="primary-button" type="submit">保存授权</button>
+                  <button class="ghost-button" id="revokeAuthButton" type="button">
+                    取消授权
+                  </button>
+                </div>
+                <p class="form-note" id="authFormHint">只有已授权的平台才允许进入发布队列。</p>
+              </form>
+              <div class="account-grid" id="accountGrid"></div>
+            </article>
+
+            <article class="panel insight-panel">
+              <div class="panel-head">
+                <div>
+                  <p class="eyebrow">优化重点</p>
+                  <h3>要解决的四个问题</h3>
+                </div>
+              </div>
+              <ul class="insight-list">
+                <li>把“手动逐一上传”改成“统一素材池 + 一键生成任务”。</li>
+                <li>把“多平台重复登录”改成“账号分层 + 状态可视”。</li>
+                <li>把“发布后不可追踪”改成“任务日志 + 结果回放”。</li>
+                <li>把“漏传错传风险”改成“模板化配置 + 失败重试”。</li>
+              </ul>
+            </article>
+
+            <article class="panel log-panel" id="logs">
+              <div class="panel-head">
+                <div>
+                  <p class="eyebrow">操作日志</p>
+                  <h3>最近事件</h3>
+                </div>
+              </div>
+              <div class="log-list" id="logList"></div>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel queue-panel" id="queue">
+          <div class="panel-head queue-head">
+            <div>
+              <p class="eyebrow">分发队列</p>
+              <h3>任务流转与异常处理</h3>
+            </div>
+            <div class="filter-tabs" id="statusFilters" aria-label="任务状态筛选">
+              <button class="filter-tab active" type="button" data-filter="all">全部</button>
+              <button class="filter-tab" type="button" data-filter="publishing">进行中</button>
+              <button class="filter-tab" type="button" data-filter="success">成功</button>
+              <button class="filter-tab" type="button" data-filter="failed">异常</button>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table class="task-table">
+              <thead>
+                <tr>
+                  <th>任务名称</th>
+                  <th>平台</th>
+                  <th>状态</th>
+                  <th>进度</th>
+                  <th>创建时间</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="taskTableBody"></tbody>
+            </table>
+            <div class="empty-state" id="emptyState" hidden>
+              <strong>暂无符合条件的任务</strong>
+              <span>可以创建一个新的分发任务，或者切换筛选条件查看其他状态。</span>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div class="toast-stack" id="toastStack" aria-live="polite" aria-atomic="true"></div>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>

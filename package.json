@@ -1,0 +1,27 @@
+{
+  "name": "aicg-distribution-platform",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:client\" \"npm:dev:server\"",
+    "dev:client": "vite --host 127.0.0.1 --port 5173",
+    "dev:server": "node server/index.js",
+    "build": "vite build",
+    "start": "node server/index.js",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "dotenv": "^16.4.5",
+    "multer": "^2.0.2"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "vite": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=18.18.0"
+  }
+}
