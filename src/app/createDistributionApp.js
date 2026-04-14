@@ -91,6 +91,7 @@ export function createDistributionApp(doc) {
     apiOnline: false,
     formDirty: false,
     oauthFlash: null,
+    authVisible: false,
   };
 
   const setText = (node, text) => node && (node.textContent = text == null ? "" : String(text));
@@ -110,16 +111,21 @@ export function createDistributionApp(doc) {
   };
   const showLogin = (message = "") => {
     setHidden(el.siteHome, false);
-    setHidden(el.authScreen, false);
+    setHidden(el.authScreen, !state.authVisible);
     setHidden(el.appShell, true);
     setPill(el.apiStatusPill, "warning", "请先登录");
     if (el.loginError) {
       el.loginError.hidden = !message;
       el.loginError.textContent = message;
     }
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    if (state.authVisible) {
+      window.scrollTo({ top: el.authScreen?.offsetTop || 0, behavior: "smooth" });
+    } else {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
   };
   const showApp = () => {
+    state.authVisible = false;
     setHidden(el.siteHome, true);
     setHidden(el.authScreen, true);
     setHidden(el.appShell, false);
@@ -352,6 +358,17 @@ export function createDistributionApp(doc) {
     void refreshData({ silent: true });
   }
 
+  function openAuthPanel() {
+    state.authVisible = true;
+    setHidden(el.authScreen, false);
+    if (el.loginError) {
+      el.loginError.hidden = true;
+      el.loginError.textContent = "";
+    }
+    el.authScreen?.scrollIntoView({ behavior: "smooth", block: "start" });
+    el.loginUsername?.focus();
+  }
+
   function bindEvents() {
     el.loginForm?.addEventListener("submit", handleLoginSubmit);
     el.logoutButton?.addEventListener("click", handleLogout);
@@ -374,6 +391,12 @@ export function createDistributionApp(doc) {
     el.searchInput?.addEventListener("input", (e) => {
       state.search = String(e.target?.value || "").trim().toLowerCase();
       renderTasks();
+    });
+    doc.querySelectorAll("[data-action='open-login']").forEach((btn) => {
+      btn.addEventListener("click", (event) => {
+        event.preventDefault();
+        openAuthPanel();
+      });
     });
     el.statusFilters?.addEventListener("click", (e) => {
       const btn = e.target.closest("[data-filter]");
@@ -422,6 +445,7 @@ export function createDistributionApp(doc) {
       });
       await enterWorkbenchAfterLogin(session);
     } catch (error) {
+      state.authVisible = true;
       showLogin(error.message || "登录失败");
     } finally {
       if (btn) btn.disabled = false;
@@ -437,6 +461,7 @@ export function createDistributionApp(doc) {
     state.files = [];
     state.tasks = [];
     state.logs = [];
+    state.authVisible = false;
     showLogin("已退出登录");
   }
 
@@ -634,6 +659,7 @@ export function createDistributionApp(doc) {
 
     if (!distributionApi.getAuthToken()) {
       if (queryLogin) {
+        state.authVisible = true;
         showLogin();
         syncAuthOptions();
         try {
@@ -645,6 +671,7 @@ export function createDistributionApp(doc) {
           return;
         }
       }
+      state.authVisible = false;
       showLogin();
       syncAuthOptions();
       if (state.oauthFlash?.oauth === "success") toast("授权完成", state.oauthFlash.message || "平台授权已返回。", "success");
