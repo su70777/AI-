@@ -2,6 +2,13 @@ import { distributionApi } from "../api/distributionApi.js";
 
 const STATUS = { all: "全部", queued: "排队中", publishing: "发布中", success: "发布成功", failed: "发布失败", draft: "待提交" };
 const AUTH = { ready: "已授权", connected: "已接入", waiting: "待授权" };
+const PREVIEW_LABELS = {
+  douyin: "抖音预览页",
+  wechat: "视频号预览页",
+  redbook: "小红书预览页",
+  kuaishou: "快手预览页",
+  bilibili: "B站稿件预览页",
+};
 const $ = (id) => document.getElementById(id);
 
 const esc = (v) =>
@@ -16,6 +23,12 @@ const toLocal = (v) => {
 };
 
 const progress = (v) => Math.max(0, Math.min(100, Math.round(Number(v) || 0)));
+const splitTags = (value) =>
+  String(value || "")
+    .split(/[,\s，、]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 5);
 
 const summarize = (items = []) => {
   const s = items.reduce((a, i) => ((a[i.status] = (a[i.status] || 0) + 1), a), {});
@@ -86,12 +99,14 @@ export function createDistributionApp(doc) {
     search: "",
     activeAuthPlatformId: "",
     selectedFileIds: new Set(),
+    previewMediaIndexByPlatformId: {},
     refreshTimer: 0,
     refreshPromise: null,
     apiOnline: false,
     formDirty: false,
     oauthFlash: null,
     authVisible: false,
+    draft: null,
   };
 
   const setText = (node, text) => node && (node.textContent = text == null ? "" : String(text));
@@ -100,6 +115,49 @@ export function createDistributionApp(doc) {
     if (!node) return;
     node.className = `status-pill ${tone}`;
     node.textContent = text;
+  };
+  const readTaskDraft = () => {
+    const form = el.taskForm;
+    const fields = form ? new FormData(form) : new FormData();
+    const value = (name, fallback = "") => String(fields.get(name) ?? fallback).trim();
+    const schedule = value("schedule");
+
+    return {
+      title: value("title", "待发布内容"),
+      summary: value("summary", "这里会展示发布前的简介预览。"),
+      tags: splitTags(value("tags")),
+      schedule: schedule ? schedule.replace("T", " ") : "待定",
+      mode: value("mode", "立即发布"),
+      cover: value("cover", "自动提取封面"),
+    };
+  };
+  const getSelectedFiles = () => state.files.filter((file) => state.selectedFileIds.has(file.id));
+  const isImageFile = (file) => String(file?.mimeType || "").startsWith("image/");
+  const isVideoFile = (file) => String(file?.mimeType || "").startsWith("video/");
+  const getPreviewMediaFiles = () => {
+    const selected = getSelectedFiles();
+    const media = [
+      ...selected.filter(isImageFile),
+      ...selected.filter(isVideoFile),
+    ];
+
+    return (media.length ? media : selected).slice(0, 5);
+  };
+  const getPreviewLabel = (platform) => PREVIEW_LABELS[platform.providerId] || `${platform.name}预览页`;
+  const getPreviewDescription = (platform) => {
+    const draft = state.draft || readTaskDraft();
+    const selectedCount = getSelectedFiles().length;
+    return {
+      label: getPreviewLabel(platform),
+      title: draft.title || `${platform.name}待发布内容`,
+      summary: draft.summary || "请在发布配置中填写简介，平台预览会同步展示。",
+      tags: draft.tags.length ? draft.tags : ["未设置标签"],
+      mediaFiles: getPreviewMediaFiles(),
+      selectedCount,
+      schedule: draft.schedule,
+      mode: draft.mode,
+      cover: draft.cover,
+    };
   };
   const toast = (title, message, tone = "success") => {
     if (!el.toastStack) return;
@@ -183,7 +241,6 @@ export function createDistributionApp(doc) {
   function ensureFilesSelected() {
     const ids = new Set(state.files.map((f) => f.id));
     state.selectedFileIds = new Set([...state.selectedFileIds].filter((id) => ids.has(id)));
-    if (!state.selectedFileIds.size && state.files.length) state.selectedFileIds = new Set(state.files.map((f) => f.id));
   }
 
   function applyData(data) {
@@ -212,40 +269,78 @@ export function createDistributionApp(doc) {
     setText(el.metricSuccessRate, `${successRate}%`);
     setText(el.metricFailureCount, s.failureCount ?? 0);
     setText(el.currentUserPill, state.user?.displayName || state.user?.username || "未登录");
-    setText(el.materialHint, state.selectedFileIds.size ? `${state.selectedFileIds.size} 个素材已选` : "请先选择素材");
+    const materialHint = !state.files.length
+      ? "待上传素材"
+      : state.selectedFileIds.size
+        ? `${state.selectedFileIds.size} 个素材已选`
+        : "未选择素材";
+    setText(el.materialHint, materialHint);
     setText(el.selectedPlatformSummary, `已选 ${s.selectedPlatformCount ?? 0} 个 / 可用 ${connected} 个`);
     setPill(el.apiStatusPill, state.apiOnline ? "success" : "warning", state.apiOnline ? "后端在线" : "后端离线");
   }
 
   function renderPlatforms() {
-    if (el.platformGrid) {
-      el.platformGrid.innerHTML = state.platforms.map((p) => `
+    state.draft = readTaskDraft();
+    if (el.accountGrid) {
+      el.accountGrid.innerHTML = state.platforms.map((p) => {
+        const preview = getPreviewDescription(p);
+        const mediaFiles = Array.isArray(preview.mediaFiles) ? preview.mediaFiles : [];
+        const desiredIndex = Number(state.previewMediaIndexByPlatformId?.[p.id] ?? 0);
+        const activeIndex = mediaFiles.length
+          ? Math.max(0, Math.min(mediaFiles.length - 1, Number.isFinite(desiredIndex) ? desiredIndex : 0))
+          : 0;
+        const activeFile = mediaFiles[activeIndex] || null;
+        const mainUrl = activeFile?.downloadUrl ? String(activeFile.downloadUrl) : "";
+
+        let mainMarkup = "";
+        if (mainUrl && isVideoFile(activeFile)) {
+          mainMarkup = `<video src="${esc(mainUrl)}" controls muted playsinline preload="metadata"></video>`;
+        } else if (mainUrl && isImageFile(activeFile)) {
+          mainMarkup = `<img src="${esc(mainUrl)}" alt="${esc(preview.title)} 预览" />`;
+        } else if (mainUrl) {
+          mainMarkup = `<div class="platform-preview-placeholder"><strong>${esc(activeFile?.name || preview.label)}</strong><span>该文件暂不支持预览</span></div>`;
+        } else {
+          mainMarkup = `<div class="platform-preview-placeholder"><strong>${esc(preview.label)}</strong><span>待上传素材</span></div>`;
+        }
+
+        const galleryMarkup = mediaFiles.length > 1
+          ? `<div class="platform-preview-gallery" aria-label="素材预览缩略图">
+              ${mediaFiles.map((file, idx) => {
+                const url = file?.downloadUrl ? String(file.downloadUrl) : "";
+                const active = idx === activeIndex ? "active" : "";
+                const label = `${preview.label} 素材 ${idx + 1}`;
+                const thumbMedia = url && isVideoFile(file)
+                  ? `<video src="${esc(url)}" muted playsinline preload="metadata"></video><span class="platform-preview-thumb-badge">视频</span>`
+                  : url && isImageFile(file)
+                    ? `<img src="${esc(url)}" alt="" loading="lazy" />`
+                    : `<span class="platform-preview-thumb-file">${esc(file?.name || "文件")}</span>`;
+
+                return `<button class="platform-preview-thumb ${active}" type="button" data-action="preview-media" data-platform-id="${esc(p.id)}" data-media-index="${idx}" aria-label="${esc(label)}">${thumbMedia}</button>`;
+              }).join("")}
+            </div>`
+          : "";
+
+        return `
         <article class="platform-card ${p.selected ? "selected" : ""}">
           <div class="platform-card-head"><strong>${esc(p.name)}</strong><span class="state ${authTone(p)}">${esc(authLabel(p))}</span></div>
-          <div class="platform-note">${esc(p.note || "")}</div>
-          <div class="platform-subnote">账号：${esc(p.accountName || "未绑定")}</div>
-          <div class="platform-subnote">凭证：${esc(p.accessTokenHint || "暂无")}</div>
+          <div class="platform-preview">
+            <div class="platform-preview-head">
+              <span class="platform-preview-label">${esc(preview.label)}</span>
+              <span class="platform-preview-chip">${preview.selectedCount ? `已选 ${preview.selectedCount} 个素材` : "未选择素材"}</span>
+            </div>
+            <div class="platform-preview-media ${mainUrl ? "has-media" : "empty"}">
+              ${mainMarkup}
+              <span class="platform-preview-mode">${esc(preview.mode)}</span>
+            </div>
+            ${galleryMarkup}
+          </div>
           <div class="task-actions">
             <button class="task-action" type="button" data-action="toggle-platform" data-platform-id="${esc(p.id)}">${p.selected ? "取消选择" : "选择平台"}</button>
             <button class="task-action" type="button" data-action="prefill-platform" data-platform-id="${esc(p.id)}">编辑配置</button>
             ${p.providerId === "douyin" || p.providerId === "bilibili" ? `<button class="task-action" type="button" data-action="start-oauth" data-platform-id="${esc(p.id)}">${oauthButtonLabel(p)}</button>` : ""}
           </div>
-        </article>`).join("");
-    }
-    if (el.accountGrid) {
-      el.accountGrid.innerHTML = state.platforms.map((p) => `
-        <article class="account-card ${p.authReady ? "connected" : "waiting"}">
-          <div class="account-head"><strong>${esc(p.name)}</strong><span class="task-status ${p.authReady ? "success" : "draft"}">${esc(authLabel(p))}</span></div>
-          <div class="account-sub">${esc(p.accountName || "未绑定账号")}</div>
-          <div class="account-sub">授权方式：${esc(p.authMethod || "未设置")}</div>
-          <div class="account-sub">选中状态：${p.selected ? "已纳入任务" : "未纳入任务"}</div>
-          <div class="account-sub">凭证提示：${esc(p.accessTokenHint || "暂无")}</div>
-          <div class="task-actions">
-            <button class="task-action" type="button" data-action="prefill-platform" data-platform-id="${esc(p.id)}">编辑配置</button>
-            ${p.providerId === "douyin" || p.providerId === "bilibili" ? `<button class="task-action" type="button" data-action="start-oauth" data-platform-id="${esc(p.id)}">${oauthButtonLabel(p)}</button>` : ""}
-            <button class="task-action" type="button" data-action="revoke-platform" data-platform-id="${esc(p.id)}">撤销授权</button>
-          </div>
-        </article>`).join("");
+        </article>`;
+      }).join("");
     }
   }
 
@@ -329,15 +424,26 @@ export function createDistributionApp(doc) {
     const platformId = target?.dataset?.platformId || "";
     const fileId = target?.dataset?.fileId || "";
     const taskId = target?.dataset?.taskId || "";
+    const mediaIndex = target?.dataset?.mediaIndex || "";
 
     if (action === "toggle-platform") return handlePlatformToggle(platformId);
     if (action === "prefill-platform") return handlePrefillPlatform(platformId);
     if (action === "start-oauth") return handleStartOAuth(platformId);
     if (action === "revoke-platform") return handleRevokePlatform(platformId);
+    if (action === "preview-media") return handlePreviewMedia(platformId, mediaIndex);
     if (action === "toggle-file") return handleToggleFile(fileId);
     if (action === "delete-file") return handleDeleteFile(fileId);
     if (action === "retry-task") return handleRetryTask(taskId);
     if (action === "copy-task-id") return handleCopyTaskId(taskId);
+    return null;
+  }
+
+  function handlePreviewMedia(platformId, mediaIndex) {
+    const id = String(platformId || "").trim();
+    if (!id) return null;
+    const index = Number.parseInt(String(mediaIndex ?? "0"), 10);
+    state.previewMediaIndexByPlatformId[id] = Number.isFinite(index) ? index : 0;
+    renderPlatforms();
     return null;
   }
 
@@ -374,6 +480,8 @@ export function createDistributionApp(doc) {
     el.logoutButton?.addEventListener("click", handleLogout);
     el.resetDemoButton?.addEventListener("click", handleReset);
     el.taskForm?.addEventListener("submit", handleTaskSubmit);
+    el.taskForm?.addEventListener("input", () => renderPlatforms());
+    el.taskForm?.addEventListener("change", () => renderPlatforms());
     el.platformAuthForm?.addEventListener("submit", handlePlatformAuthSubmit);
     el.revokeAuthButton?.addEventListener("click", () => handleRevokePlatform(el.authPlatformSelect?.value || state.activeAuthPlatformId));
     el.jumpToFormButton?.addEventListener("click", () => el.taskForm?.scrollIntoView({ behavior: "smooth", block: "start" }));
@@ -483,6 +591,13 @@ export function createDistributionApp(doc) {
     try {
       const result = await distributionApi.uploadFiles(list);
       await refreshData({ silent: true });
+      const addedIds = Array.isArray(result?.added)
+        ? result.added.map((file) => file?.id).filter(Boolean)
+        : [];
+      if (addedIds.length) {
+        addedIds.forEach((id) => state.selectedFileIds.add(id));
+      }
+      renderPlatforms();
       toast("素材已上传", `新增 ${result.added?.length || 0} 个，跳过 ${result.skipped?.length || 0} 个。`, "success");
     } catch (error) {
       toast("上传失败", error.message || "素材上传失败。", "error");
@@ -496,6 +611,7 @@ export function createDistributionApp(doc) {
       await distributionApi.deleteFile(fileId);
       state.selectedFileIds.delete(fileId);
       await refreshData({ silent: true });
+      renderPlatforms();
       toast("已删除", "素材已移除。", "success");
     } catch (error) {
       toast("删除失败", error.message || "无法删除素材。", "error");
@@ -507,6 +623,7 @@ export function createDistributionApp(doc) {
     else state.selectedFileIds.add(fileId);
     renderFiles();
     renderMetrics();
+    renderPlatforms();
   }
 
   async function handlePlatformToggle(platformId) {

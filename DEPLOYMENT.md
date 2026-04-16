@@ -78,6 +78,12 @@ npm.cmd start
 
 发布 B站内容时，任务里需要至少一个视频素材和一张封面图片。
 
+注意：
+
+- `VITE_BASE_PATH` 只影响前端构建
+- `BILIBILI_*` 这些值需要让 Node 后端在运行时也能读到
+- 如果你在生产环境里只改了 `.env.production`，请把同样的 B站配置同步到服务器上的 `.env`
+
 ## 5. 常见问题
 
 - 如果 PowerShell 里 `npm` 不可用，直接用 `npm.cmd`
