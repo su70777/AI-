@@ -30,6 +30,60 @@ function normalizeText(value) {
   return String(value || "").trim();
 }
 
+const PLATFORM_OVERRIDE_FIELDS = new Set([
+  "title",
+  "summary",
+  "tags",
+  "topics",
+  "visibility",
+  "category",
+  "copyright",
+  "noteType",
+  "publishAccount",
+  "note",
+  "tid",
+  "categoryId",
+  "noReprint",
+  "source",
+]);
+
+function normalizePlatformOverrides(input = {}, platformIds = []) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return {};
+  }
+
+  const allowedPlatforms = new Set(platformIds.filter(Boolean));
+  const output = {};
+
+  for (const [platformId, rawOverride] of Object.entries(input)) {
+    if (allowedPlatforms.size && !allowedPlatforms.has(platformId)) {
+      continue;
+    }
+
+    if (!rawOverride || typeof rawOverride !== "object" || Array.isArray(rawOverride)) {
+      continue;
+    }
+
+    const cleanOverride = {};
+    for (const [field, value] of Object.entries(rawOverride)) {
+      if (!PLATFORM_OVERRIDE_FIELDS.has(field)) {
+        continue;
+      }
+
+      const cleanValue = normalizeText(value);
+      if (cleanValue) {
+        cleanOverride[field] = cleanValue;
+      }
+    }
+
+    if (Object.keys(cleanOverride).length) {
+      output[platformId] = cleanOverride;
+    }
+  }
+
+  return output;
+}
+
 function maskToken(value) {
   const text = normalizeText(value);
   if (!text) {
@@ -60,6 +114,10 @@ function normalizePlatform(platform) {
     providerId = "douyin";
   } else if (platform.id === "bilibili" && providerId !== "bilibili") {
     providerId = "bilibili";
+  } else if (platform.id === "wechat" && providerId !== "wechat_channels") {
+    providerId = "wechat_channels";
+  } else if (platform.id === "redbook" && providerId !== "redbook") {
+    providerId = "redbook";
   } else if (!providerId) {
     providerId = "mock";
   }
@@ -110,9 +168,11 @@ function normalizePlatform(platform) {
 }
 
 function normalizeTask(task) {
+  const platformIds = Array.isArray(task.platformIds) ? task.platformIds : [];
+
   return {
     ...task,
-    platformIds: Array.isArray(task.platformIds) ? task.platformIds : [],
+    platformIds,
     platformNames: Array.isArray(task.platformNames) ? task.platformNames : [],
     fileIds: Array.isArray(task.fileIds) ? task.fileIds : [],
     fileCount: Number.isFinite(task.fileCount) ? task.fileCount : 0,
@@ -120,6 +180,7 @@ function normalizeTask(task) {
     updatedAt: task.updatedAt || task.createdAt || formatDateTime(new Date()),
     retryCount: Number.isFinite(task.retryCount) ? task.retryCount : 0,
     publishResults: Array.isArray(task.publishResults) ? task.publishResults : [],
+    platformOverrides: normalizePlatformOverrides(task.platformOverrides, platformIds),
     lastPublishedAt: typeof task.lastPublishedAt === "string" ? task.lastPublishedAt : "",
     lastError: typeof task.lastError === "string" ? task.lastError : "",
   };
@@ -545,10 +606,11 @@ export function createTaskRecord(input = {}) {
   }
 
   const now = new Date();
+  const normalizedPlatformIds = platforms.map((platform) => platform.id);
   const task = {
     id: generateTaskId(),
     title,
-    platformIds: platforms.map((platform) => platform.id),
+    platformIds: normalizedPlatformIds,
     platformNames: platforms.map((platform) => platform.name),
     status: "queued",
     progress: 12,
@@ -562,6 +624,7 @@ export function createTaskRecord(input = {}) {
     tags: normalizeText(input.tags || ""),
     mode: normalizeText(input.mode || "立即发布"),
     cover: normalizeText(input.cover || "自动提取封面"),
+    platformOverrides: normalizePlatformOverrides(input.platformOverrides, normalizedPlatformIds),
     retryCount: 0,
     publishResults: [],
     lastPublishedAt: "",

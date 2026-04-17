@@ -8,6 +8,7 @@
 - 分发任务创建、重试、日志
 - Douyin 官方 OAuth 接入
 - B站官方 OAuth 与视频投稿接入
+- 视频号 / 小红书桥接发布接口接入准备
 
 ## 目录结构
 
@@ -96,6 +97,27 @@ BILIBILI_REDIRECT_URI=http://127.0.0.1:3001/oauth/bilibili/callback
 BILIBILI_AUTHORIZATION_URL=https://passport.bilibili.com/oauth2/authorize
 ```
 
+## 视频号 / 小红书接入方式
+
+视频号和小红书当前在工程里已经从 `mock` 拆成独立 provider：
+
+- 视频号：`wechat_channels`
+- 小红书：`redbook`
+
+由于这两个平台的服务器端内容发布能力通常需要官方能力、服务商能力或内部自动化服务配合，工程先采用“桥接发布接口”方式接入。你后续拿到可发布接口后，只需要在环境变量里配置接口地址：
+
+```env
+WECHAT_CHANNELS_PUBLISH_ENDPOINT=https://你的服务/发布视频号
+WECHAT_CHANNELS_API_KEY=可选密钥
+
+REDBOOK_PUBLISH_ENDPOINT=https://你的服务/发布小红书
+REDBOOK_API_KEY=可选密钥
+
+PUBLIC_SERVER_URL=https://lmf.hszk365.cn
+```
+
+创建任务时，后端会把统一内容、每个平台的单独微调内容、素材列表等信息通过 `POST JSON` 发给对应桥接接口。`PUBLIC_SERVER_URL` 用来生成素材的公网访问地址。未配置 endpoint 时，任务会明确标记为“待接入/跳过”，不会误报真实发布成功。
+
 更完整的部署和发布说明见 [DEPLOYMENT.md](DEPLOYMENT.md)。
 
 ## 生产构建
@@ -115,9 +137,11 @@ npm.cmd start
 - 查看任务进度、重试失败任务
 - 对 Douyin 走官方 OAuth 授权并发起真实发布
 - 对 B站走官方 OAuth 授权并发起真实投稿
+- 对视频号 / 小红书生成真实发布所需的桥接 payload，并等待官方或服务商发布接口接入
 
 ## 说明
 
 - 目前 Douyin 和 B站是两条真实接入链路
-- 其他平台目前仍以本地模拟或待接入方式处理
+- 视频号和小红书已经有独立 provider，但需要配置桥接接口后才能真实发出
+- 快手目前仍以本地模拟或待接入方式处理
 - 如果你刚装完 Node，但终端里 `node` 还不可用，重开一次 VS Code 终端即可

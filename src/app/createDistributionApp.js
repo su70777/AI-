@@ -4,11 +4,46 @@ const STATUS = { all: "全部", queued: "排队中", publishing: "发布中", su
 const AUTH = { ready: "已授权", connected: "已接入", waiting: "待授权" };
 const PREVIEW_LABELS = {
   douyin: "抖音预览页",
+  wechat_channels: "视频号预览页",
   wechat: "视频号预览页",
   redbook: "小红书预览页",
   kuaishou: "快手预览页",
   bilibili: "B站稿件预览页",
 };
+const PLATFORM_EXTRA_FIELDS = {
+  douyin: [
+    { key: "topics", label: "抖音话题", placeholder: "例如：#AI课程 #知识分享" },
+    { key: "visibility", label: "可见范围", placeholder: "公开 / 好友可见 / 私密" },
+  ],
+  bilibili: [
+    { key: "tid", label: "B站分区ID", placeholder: "例如：201，按B站后台为准" },
+    { key: "copyright", label: "版权声明", placeholder: "原创 / 转载" },
+    { key: "source", label: "转载来源", placeholder: "原创内容可留空" },
+  ],
+  redbook: [
+    { key: "noteType", label: "笔记类型", placeholder: "视频笔记 / 图文笔记" },
+    { key: "topics", label: "小红书话题", placeholder: "例如：学习方法 AI课程" },
+  ],
+  kuaishou: [
+    { key: "topics", label: "快手话题", placeholder: "例如：课程干货" },
+    { key: "visibility", label: "可见范围", placeholder: "公开 / 私密" },
+  ],
+  wechat: [
+    { key: "publishAccount", label: "视频号身份", placeholder: "默认视频号" },
+    { key: "topics", label: "视频号话题", placeholder: "例如：AI学习" },
+  ],
+  wechat_channels: [
+    { key: "publishAccount", label: "视频号身份", placeholder: "默认视频号" },
+    { key: "topics", label: "视频号话题", placeholder: "例如：AI学习" },
+  ],
+};
+const FALLBACK_EXTRA_FIELDS = [
+  { key: "note", label: "平台备注", placeholder: "填写该平台的特殊发布要求" },
+];
+const VIDEO_EXTENSIONS = new Set([".mp4", ".mov", ".m4v", ".webm"]);
+const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp"]);
+const DOCUMENT_EXTENSIONS = new Set([".pdf", ".doc", ".docx"]);
+const SUPPORTED_UPLOAD_HINT = "支持 mp4 / mov / m4v / webm 视频，以及 jpg / png / pdf / docx 等素材。";
 const $ = (id) => document.getElementById(id);
 
 const esc = (v) =>
@@ -34,6 +69,36 @@ const summarize = (items = []) => {
   const s = items.reduce((a, i) => ((a[i.status] = (a[i.status] || 0) + 1), a), {});
   return `真实 ${s.success || 0} / 模拟 ${s.simulated || 0} / 跳过 ${s.skipped || 0}`;
 };
+
+const fileExt = (file) => {
+  const name = String(file?.name || file?.originalName || "");
+  const idx = name.lastIndexOf(".");
+  return idx >= 0 ? name.slice(idx).toLowerCase() : "";
+};
+
+const getFileKind = (file) => {
+  const mimeType = String(file?.mimeType || file?.type || "").toLowerCase();
+  const ext = fileExt(file);
+  if (mimeType.startsWith("video/") || VIDEO_EXTENSIONS.has(ext)) return "video";
+  if (mimeType.startsWith("image/") || IMAGE_EXTENSIONS.has(ext)) return "image";
+  if (
+    mimeType === "application/pdf" ||
+    mimeType.includes("word") ||
+    DOCUMENT_EXTENSIONS.has(ext)
+  ) {
+    return "document";
+  }
+  return "other";
+};
+
+const fileKindLabel = (file) => ({
+  video: "视频",
+  image: "图片",
+  document: "附件",
+  other: "文件",
+}[getFileKind(file)] || "文件");
+
+const isAllowedUploadFile = (file) => getFileKind(file) !== "other";
 
 const authLabel = (p) => AUTH[p?.authStatus] || AUTH.waiting;
 const authTone = (p) => (p?.authReady ? "connected" : "waiting");
@@ -106,6 +171,7 @@ export function createDistributionApp(doc) {
     formDirty: false,
     oauthFlash: null,
     authVisible: false,
+    platformOverrides: {},
     draft: null,
   };
 
@@ -131,14 +197,66 @@ export function createDistributionApp(doc) {
       cover: value("cover", "自动提取封面"),
     };
   };
+  const normalizeOverrideValue = (value) => String(value ?? "").trim();
+  const getPlatformOverride = (platformId) => state.platformOverrides?.[platformId] || {};
+  const getExtraFields = (platform) => PLATFORM_EXTRA_FIELDS[platform?.providerId] || FALLBACK_EXTRA_FIELDS;
+  const hasPlatformOverride = (platformId) =>
+    Object.values(getPlatformOverride(platformId)).some((value) => normalizeOverrideValue(value));
+  const setPlatformOverrideValue = (platformId, field, value) => {
+    const id = normalizeOverrideValue(platformId);
+    const key = normalizeOverrideValue(field);
+    if (!id || !key) return;
+
+    const next = { ...(state.platformOverrides[id] || {}) };
+    const cleanValue = normalizeOverrideValue(value);
+    if (cleanValue) next[key] = cleanValue;
+    else delete next[key];
+
+    if (Object.keys(next).length) state.platformOverrides[id] = next;
+    else delete state.platformOverrides[id];
+  };
+  const buildTagsFromOverride = (draft, override) => {
+    const platformTagText = [override.tags, override.topics].filter(Boolean).join(" ");
+    const platformTags = splitTags(platformTagText);
+    return platformTags.length ? platformTags : draft.tags.length ? draft.tags : ["未设置标签"];
+  };
+  const getEffectivePlatformContent = (platform, draft = state.draft || readTaskDraft()) => {
+    const override = getPlatformOverride(platform.id);
+
+    return {
+      title: normalizeOverrideValue(override.title) || draft.title || `${platform.name}待发布内容`,
+      summary:
+        normalizeOverrideValue(override.summary) ||
+        draft.summary ||
+        "请在发布配置中填写简介，平台预览会同步展示。",
+      tags: buildTagsFromOverride(draft, override),
+      override,
+      overrideActive: hasPlatformOverride(platform.id),
+    };
+  };
+  const buildPlatformOverridesPayload = (platforms) => {
+    const payload = {};
+    platforms.forEach((platform) => {
+      const override = getPlatformOverride(platform.id);
+      const cleanOverride = Object.fromEntries(
+        Object.entries(override)
+          .map(([key, value]) => [key, normalizeOverrideValue(value)])
+          .filter(([, value]) => value),
+      );
+      if (Object.keys(cleanOverride).length) {
+        payload[platform.id] = cleanOverride;
+      }
+    });
+    return payload;
+  };
   const getSelectedFiles = () => state.files.filter((file) => state.selectedFileIds.has(file.id));
-  const isImageFile = (file) => String(file?.mimeType || "").startsWith("image/");
-  const isVideoFile = (file) => String(file?.mimeType || "").startsWith("video/");
+  const isImageFile = (file) => getFileKind(file) === "image";
+  const isVideoFile = (file) => getFileKind(file) === "video";
   const getPreviewMediaFiles = () => {
     const selected = getSelectedFiles();
     const media = [
-      ...selected.filter(isImageFile),
       ...selected.filter(isVideoFile),
+      ...selected.filter(isImageFile),
     ];
 
     return (media.length ? media : selected).slice(0, 5);
@@ -146,17 +264,19 @@ export function createDistributionApp(doc) {
   const getPreviewLabel = (platform) => PREVIEW_LABELS[platform.providerId] || `${platform.name}预览页`;
   const getPreviewDescription = (platform) => {
     const draft = state.draft || readTaskDraft();
+    const content = getEffectivePlatformContent(platform, draft);
     const selectedCount = getSelectedFiles().length;
     return {
       label: getPreviewLabel(platform),
-      title: draft.title || `${platform.name}待发布内容`,
-      summary: draft.summary || "请在发布配置中填写简介，平台预览会同步展示。",
-      tags: draft.tags.length ? draft.tags : ["未设置标签"],
+      title: content.title,
+      summary: content.summary,
+      tags: content.tags,
       mediaFiles: getPreviewMediaFiles(),
       selectedCount,
       schedule: draft.schedule,
       mode: draft.mode,
       cover: draft.cover,
+      overrideActive: content.overrideActive,
     };
   };
   const toast = (title, message, tone = "success") => {
@@ -319,9 +439,24 @@ export function createDistributionApp(doc) {
               }).join("")}
             </div>`
           : "";
+        const override = getPlatformOverride(p.id);
+        const overrideStateLabel = preview.overrideActive ? "已单独微调" : "继承统一内容";
+        const previewTagsMarkup = preview.tags.map((tag) => `<span>${esc(tag)}</span>`).join("");
+        const extraFieldsMarkup = getExtraFields(p).map((field) => `
+          <label class="platform-override-field">
+            <span>${esc(field.label)}</span>
+            <input
+              type="text"
+              data-platform-id="${esc(p.id)}"
+              data-override-field="${esc(field.key)}"
+              value="${esc(override[field.key] || "")}"
+              placeholder="${esc(field.placeholder)}"
+            />
+          </label>
+        `).join("");
 
         return `
-        <article class="platform-card ${p.selected ? "selected" : ""}">
+        <article class="platform-card ${p.selected ? "selected" : ""}" data-platform-card="${esc(p.id)}">
           <div class="platform-card-head"><strong>${esc(p.name)}</strong><span class="state ${authTone(p)}">${esc(authLabel(p))}</span></div>
           <div class="platform-preview">
             <div class="platform-preview-head">
@@ -333,6 +468,53 @@ export function createDistributionApp(doc) {
               <span class="platform-preview-mode">${esc(preview.mode)}</span>
             </div>
             ${galleryMarkup}
+            <div class="platform-preview-body">
+              <strong class="platform-preview-title" data-preview-title>${esc(preview.title)}</strong>
+              <p class="platform-preview-copy" data-preview-summary>${esc(preview.summary)}</p>
+              <div class="platform-preview-tags" data-preview-tags>${previewTagsMarkup}</div>
+              <div class="platform-preview-meta">
+                <span>${esc(preview.schedule)}</span>
+                <span>${esc(preview.cover)}</span>
+              </div>
+            </div>
+          </div>
+          <div class="platform-override-editor">
+            <div class="platform-override-head">
+              <strong>单独微调</strong>
+              <span data-override-state>${esc(overrideStateLabel)}</span>
+            </div>
+            <label class="platform-override-field">
+              <span>平台标题</span>
+              <input
+                type="text"
+                data-platform-id="${esc(p.id)}"
+                data-override-field="title"
+                value="${esc(override.title || "")}"
+                placeholder="留空则使用统一标题"
+              />
+            </label>
+            <label class="platform-override-field">
+              <span>平台简介</span>
+              <textarea
+                data-platform-id="${esc(p.id)}"
+                data-override-field="summary"
+                placeholder="留空则使用统一简介"
+              >${esc(override.summary || "")}</textarea>
+            </label>
+            <div class="platform-override-grid">
+              <label class="platform-override-field">
+                <span>平台标签</span>
+                <input
+                  type="text"
+                  data-platform-id="${esc(p.id)}"
+                  data-override-field="tags"
+                  value="${esc(override.tags || "")}"
+                  placeholder="留空则使用统一标签"
+                />
+              </label>
+              ${extraFieldsMarkup}
+            </div>
+            <button class="task-action subtle" type="button" data-action="clear-platform-override" data-platform-id="${esc(p.id)}">恢复继承统一内容</button>
           </div>
           <div class="task-actions">
             <button class="task-action" type="button" data-action="toggle-platform" data-platform-id="${esc(p.id)}">${p.selected ? "取消选择" : "选择平台"}</button>
@@ -347,12 +529,35 @@ export function createDistributionApp(doc) {
   function renderFiles() {
     if (!el.fileList) return;
     if (!state.files.length) {
-      el.fileList.innerHTML = `<div class="empty-state"><strong>暂无上传素材</strong><span>先上传视频、封面图或文案附件。</span></div>`;
+      el.fileList.innerHTML = `<div class="empty-state"><strong>暂无上传素材</strong><span>先上传课程视频、封面图或文案附件。</span></div>`;
       return;
     }
     el.fileList.innerHTML = state.files.map((f) => {
       const selected = state.selectedFileIds.has(f.id);
-      return `<div class="file-chip ${selected ? "selected" : ""}"><div><strong>${esc(f.name)}</strong><div class="file-meta">${esc(f.sizeLabel || "")} · ${esc(f.mimeType || "未知类型")} · ${esc(f.createdAt || "")}</div></div><div class="task-actions"><button class="task-action" type="button" data-action="toggle-file" data-file-id="${esc(f.id)}">${selected ? "已选中" : "选择"}</button><button class="remove-button" type="button" data-action="delete-file" data-file-id="${esc(f.id)}">删除</button></div></div>`;
+      const kind = getFileKind(f);
+      const url = f.downloadUrl ? String(f.downloadUrl) : "";
+      const previewMarkup = isVideoFile(f) && url
+        ? `<video class="file-preview-media" src="${esc(url)}" muted playsinline preload="metadata"></video>`
+        : isImageFile(f) && url
+          ? `<img class="file-preview-media" src="${esc(url)}" alt="${esc(f.name)} 预览" loading="lazy" />`
+          : `<span class="file-preview-fallback">${esc(fileKindLabel(f))}</span>`;
+
+      return `<div class="file-chip ${selected ? "selected" : ""} ${kind}">
+        <div class="file-preview">${previewMarkup}</div>
+        <div class="file-info">
+          <strong>${esc(f.name)}</strong>
+          <div class="file-meta">
+            <span class="file-type-badge ${kind}">${esc(fileKindLabel(f))}</span>
+            <span>${esc(f.sizeLabel || "")}</span>
+            <span>${esc(f.mimeType || "未知类型")}</span>
+            <span>${esc(f.createdAt || "")}</span>
+          </div>
+        </div>
+        <div class="task-actions">
+          <button class="task-action" type="button" data-action="toggle-file" data-file-id="${esc(f.id)}">${selected ? "已选中" : "选择"}</button>
+          <button class="remove-button" type="button" data-action="delete-file" data-file-id="${esc(f.id)}">删除</button>
+        </div>
+      </div>`;
     }).join("");
   }
 
@@ -431,6 +636,7 @@ export function createDistributionApp(doc) {
     if (action === "start-oauth") return handleStartOAuth(platformId);
     if (action === "revoke-platform") return handleRevokePlatform(platformId);
     if (action === "preview-media") return handlePreviewMedia(platformId, mediaIndex);
+    if (action === "clear-platform-override") return handleClearPlatformOverride(platformId);
     if (action === "toggle-file") return handleToggleFile(fileId);
     if (action === "delete-file") return handleDeleteFile(fileId);
     if (action === "retry-task") return handleRetryTask(taskId);
@@ -443,6 +649,49 @@ export function createDistributionApp(doc) {
     if (!id) return null;
     const index = Number.parseInt(String(mediaIndex ?? "0"), 10);
     state.previewMediaIndexByPlatformId[id] = Number.isFinite(index) ? index : 0;
+    renderPlatforms();
+    return null;
+  }
+
+  function getPlatformCard(platformId) {
+    if (!el.accountGrid) return null;
+    return [...el.accountGrid.querySelectorAll("[data-platform-card]")]
+      .find((card) => card.dataset.platformCard === platformId) || null;
+  }
+
+  function updatePlatformPreviewContent(platformId) {
+    const platform = getPlatform(platformId);
+    const card = getPlatformCard(platformId);
+    if (!platform || !card) return;
+
+    const preview = getPreviewDescription(platform);
+    const titleNode = card.querySelector("[data-preview-title]");
+    const summaryNode = card.querySelector("[data-preview-summary]");
+    const tagsNode = card.querySelector("[data-preview-tags]");
+    const overrideStateNode = card.querySelector("[data-override-state]");
+
+    if (titleNode) titleNode.textContent = preview.title;
+    if (summaryNode) summaryNode.textContent = preview.summary;
+    if (tagsNode) tagsNode.innerHTML = preview.tags.map((tag) => `<span>${esc(tag)}</span>`).join("");
+    if (overrideStateNode) {
+      overrideStateNode.textContent = preview.overrideActive ? "已单独微调" : "继承统一内容";
+    }
+  }
+
+  function handlePlatformOverrideInput(target) {
+    const platformId = String(target?.dataset?.platformId || "").trim();
+    const field = String(target?.dataset?.overrideField || "").trim();
+    if (!platformId || !field) return;
+
+    setPlatformOverrideValue(platformId, field, target.value);
+    state.draft = readTaskDraft();
+    updatePlatformPreviewContent(platformId);
+  }
+
+  function handleClearPlatformOverride(platformId) {
+    const id = String(platformId || "").trim();
+    if (!id) return null;
+    delete state.platformOverrides[id];
     renderPlatforms();
     return null;
   }
@@ -523,6 +772,10 @@ export function createDistributionApp(doc) {
       const btn = e.target.closest("[data-action]");
       if (btn) handleAction(btn);
     });
+    el.accountGrid?.addEventListener("input", (e) => {
+      const field = e.target.closest("[data-override-field]");
+      if (field) handlePlatformOverrideInput(field);
+    });
     el.fileList?.addEventListener("click", (e) => {
       const btn = e.target.closest("[data-action]");
       if (btn) handleAction(btn);
@@ -569,6 +822,7 @@ export function createDistributionApp(doc) {
     state.files = [];
     state.tasks = [];
     state.logs = [];
+    state.platformOverrides = {};
     state.authVisible = false;
     showLogin("已退出登录");
   }
@@ -578,6 +832,7 @@ export function createDistributionApp(doc) {
     try {
       await distributionApi.reset();
       state.selectedFileIds = new Set();
+      state.platformOverrides = {};
       await refreshData({ silent: true });
       toast("已重置", "演示数据恢复完成。", "success");
     } catch (error) {
@@ -588,8 +843,21 @@ export function createDistributionApp(doc) {
   async function handleFileUpload(files) {
     const list = Array.from(files || []).filter(Boolean);
     if (!list.length) return;
+    const supported = list.filter(isAllowedUploadFile);
+    const unsupported = list.filter((file) => !isAllowedUploadFile(file));
+
+    if (unsupported.length) {
+      toast(
+        "部分文件不支持",
+        `${unsupported.map((file) => file.name).slice(0, 3).join("、")} 暂不能上传。${SUPPORTED_UPLOAD_HINT}`,
+        "warn",
+      );
+    }
+
+    if (!supported.length) return;
+
     try {
-      const result = await distributionApi.uploadFiles(list);
+      const result = await distributionApi.uploadFiles(supported);
       await refreshData({ silent: true });
       const addedIds = Array.isArray(result?.added)
         ? result.added.map((file) => file?.id).filter(Boolean)
@@ -598,7 +866,8 @@ export function createDistributionApp(doc) {
         addedIds.forEach((id) => state.selectedFileIds.add(id));
       }
       renderPlatforms();
-      toast("素材已上传", `新增 ${result.added?.length || 0} 个，跳过 ${result.skipped?.length || 0} 个。`, "success");
+      const videoCount = supported.filter((file) => getFileKind(file) === "video").length;
+      toast("素材已上传", `新增 ${result.added?.length || 0} 个，跳过 ${result.skipped?.length || 0} 个。${videoCount ? `包含 ${videoCount} 个视频。` : ""}`, "success");
     } catch (error) {
       toast("上传失败", error.message || "素材上传失败。", "error");
     } finally {
@@ -701,6 +970,10 @@ export function createDistributionApp(doc) {
     if (!selectedPlatforms.length) return toast("请选择平台", "至少选择一个目标平台。", "warn");
     if (unauthorized.length) return toast("存在未授权平台", `${unauthorized.map((p) => p.name).join(" / ")} 还不能发布。`, "warn");
     if (!selectedFiles.length) return toast("请选择素材", "请至少保留一个可发布素材。", "warn");
+    if (selectedPlatforms.some((p) => p.providerId === "wechat_channels")) {
+      const hasVideo = selectedFiles.some((file) => String(file.mimeType || "").startsWith("video/"));
+      if (!hasVideo) return toast("视频号需要视频", "请先上传至少一个视频素材。", "warn");
+    }
     if (selectedPlatforms.some((p) => p.providerId === "bilibili")) {
       const hasVideo = selectedFiles.some((file) => String(file.mimeType || "").startsWith("video/"));
       const hasCover = selectedFiles.some((file) => String(file.mimeType || "").startsWith("image/"));
@@ -721,6 +994,7 @@ export function createDistributionApp(doc) {
         owner: state.user?.displayName || state.user?.username || "AI课程工厂",
         platformIds: selectedPlatforms.map((p) => p.id),
         fileIds: selectedFiles.map((f) => f.id),
+        platformOverrides: buildPlatformOverridesPayload(selectedPlatforms),
       });
       await refreshData({ silent: true });
       toast("任务已创建", "分发任务已进入队列。", "success");

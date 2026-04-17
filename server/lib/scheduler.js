@@ -37,16 +37,17 @@ export function scheduleTaskLifecycle(taskId) {
 
     publishTask(taskId)
       .then((result) => {
-        const nextStatus = result.skippedCount && !result.realCount ? "failed" : "success";
+        const hasBlockingResult = Boolean(result.skippedCount || result.failedCount);
+        const nextStatus = hasBlockingResult ? "failed" : "success";
         updateTask(taskId, {
           status: nextStatus,
           progress: nextStatus === "success" ? 100 : 88,
           publishResults: result.results,
-          lastError: nextStatus === "success" ? "" : "部分平台尚未接入真实发布接口",
+          lastError: nextStatus === "success" ? "" : "部分平台尚未接入真实发布接口或发布失败",
         });
         addLog(
           nextStatus === "success"
-            ? `任务 ${task.title} 已完成分发，抖音真实发布与其他平台队列已处理。`
+            ? `任务 ${task.title} 已完成分发，所有目标平台已处理。`
             : `任务 ${task.title} 已完成部分分发，但存在未接入的平台。`,
           nextStatus === "success" ? "info" : "warn",
         );

@@ -53,6 +53,24 @@ const FRONTEND_ORIGIN = String(process.env.APP_FRONTEND_URL || "http://127.0.0.1
 );
 
 const app = express();
+const VIDEO_EXTENSIONS = new Set([".mp4", ".mov", ".m4v", ".webm"]);
+const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp"]);
+const DOCUMENT_EXTENSIONS = new Set([".pdf", ".doc", ".docx"]);
+
+function isSupportedUpload(file) {
+  const mimeType = String(file?.mimetype || "").toLowerCase();
+  const ext = path.extname(file?.originalname || "").toLowerCase();
+
+  return (
+    mimeType.startsWith("video/") ||
+    mimeType.startsWith("image/") ||
+    mimeType === "application/pdf" ||
+    mimeType.includes("word") ||
+    VIDEO_EXTENSIONS.has(ext) ||
+    IMAGE_EXTENSIONS.has(ext) ||
+    DOCUMENT_EXTENSIONS.has(ext)
+  );
+}
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => {
@@ -68,6 +86,17 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
+  limits: {
+    fileSize: 1024 * 1024 * 1024,
+  },
+  fileFilter: (_req, file, cb) => {
+    if (isSupportedUpload(file)) {
+      cb(null, true);
+      return;
+    }
+
+    cb(new Error("仅支持上传视频、图片、PDF、Word 等素材文件"));
+  },
 });
 
 app.use(cors());
@@ -428,6 +457,13 @@ app.post("/api/platforms/:id/oauth/start", (req, res) => {
           username: req.user?.username || "",
         }),
       });
+    } else if (providerId === "wechat_channels" || providerId === "redbook") {
+      return sendError(
+        res,
+        new Error(
+          `${platform.name} 当前采用桥接发布接口接入，请在授权配置里保存账号信息，并在环境变量中配置发布 endpoint。`,
+        ),
+      );
     } else {
       return sendError(res, new Error("当前平台暂不支持官方 OAuth 授权"));
     }
@@ -507,7 +543,16 @@ app.get("/api/files", (_req, res) => {
   res.json({ data: listFiles() });
 });
 
-app.post("/api/files", upload.array("files"), (req, res) => {
+app.post("/api/files", (req, res) => {
+  upload.array("files")(req, res, (uploadError) => {
+    if (uploadError) {
+      const message =
+        uploadError instanceof multer.MulterError && uploadError.code === "LIMIT_FILE_SIZE"
+          ? "单个视频或素材文件不能超过 1GB"
+          : uploadError.message || "素材上传失败";
+      return sendError(res, new Error(message));
+    }
+
   try {
     const uploadedFiles = Array.isArray(req.files) ? req.files : [];
     if (!uploadedFiles.length) {
@@ -556,6 +601,7 @@ app.post("/api/files", upload.array("files"), (req, res) => {
   } catch (error) {
     return sendError(res, error);
   }
+  });
 });
 
 app.delete("/api/files/:id", (req, res) => {

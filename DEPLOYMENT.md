@@ -14,6 +14,7 @@ copy .env.example .env
 3. 编辑 `.env`，填入需要启用的平台凭证。至少可以先配 Douyin 或 B站其中一个：
    - Douyin：`DOUYIN_CLIENT_KEY`、`DOUYIN_CLIENT_SECRET`
    - B站：`BILIBILI_CLIENT_ID`、`BILIBILI_CLIENT_SECRET`
+   - 视频号 / 小红书：`WECHAT_CHANNELS_PUBLISH_ENDPOINT`、`REDBOOK_PUBLISH_ENDPOINT`
 4. 运行：
 
 ```bash
@@ -84,7 +85,19 @@ npm.cmd start
 - `BILIBILI_*` 这些值需要让 Node 后端在运行时也能读到
 - 如果你在生产环境里只改了 `.env.production`，请把同样的 B站配置同步到服务器上的 `.env`
 
-## 5. 常见问题
+## 5. 视频号 / 小红书桥接配置
+
+视频号和小红书当前通过桥接接口接入真实发布能力。拿到官方 API、服务商 API，或自建自动化发布服务后，配置：
+
+- `WECHAT_CHANNELS_PUBLISH_ENDPOINT`
+- `WECHAT_CHANNELS_API_KEY`
+- `REDBOOK_PUBLISH_ENDPOINT`
+- `REDBOOK_API_KEY`
+- `PUBLIC_SERVER_URL`
+
+后端会把任务内容和素材信息 `POST` 到对应 endpoint。未配置 endpoint 时，任务会被标记为待接入，不会误报发布成功。
+
+## 6. 常见问题
 
 - 如果 PowerShell 里 `npm` 不可用，直接用 `npm.cmd`
 - 如果修改了 `.env`，要重启 `npm run dev`

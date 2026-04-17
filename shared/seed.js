@@ -87,7 +87,11 @@ export function createDefaultDb() {
           ? "douyin"
           : platform.id === "bilibili"
             ? "bilibili"
-            : "mock",
+            : platform.id === "wechat"
+              ? "wechat_channels"
+              : platform.id === "redbook"
+                ? "redbook"
+                : "mock",
       connected: DEFAULT_CONNECTED_PLATFORM_IDS.includes(platform.id),
       selected: DEFAULT_SELECTED_PLATFORM_IDS.includes(platform.id),
       authMethod:
