@@ -7,6 +7,7 @@ import { formatBytes, formatClock, formatDateTime } from "../../shared/format.js
 import {
   DEFAULT_CONNECTED_PLATFORM_IDS,
   DEFAULT_SELECTED_PLATFORM_IDS,
+  PLATFORM_CATALOG,
 } from "../../shared/constants.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -16,6 +17,8 @@ export const ROOT_DIR = path.join(__dirname, "..", "..");
 export const DATA_DIR = path.join(ROOT_DIR, "server", "data");
 export const UPLOAD_DIR = path.join(ROOT_DIR, "server", "uploads");
 export const DB_FILE = path.join(DATA_DIR, "db.json");
+const IS_ASSISTANT_MODE =
+  String(process.env.PUBLISH_MODE || "assistant").trim().toLowerCase() === "assistant";
 
 function ensureStorage() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -28,6 +31,79 @@ function clone(value) {
 
 function normalizeText(value) {
   return String(value || "").trim();
+}
+
+function tryDecodeLatin1Utf8(value) {
+  const input = String(value || "");
+  if (!input) {
+    return "";
+  }
+
+  try {
+    const repaired = Buffer.from(input, "latin1").toString("utf8");
+    if (!repaired || repaired.includes("\ufffd") || repaired === input) {
+      return input;
+    }
+
+    const hasCjk = /[\u3400-\u9fff]/;
+    if (!hasCjk.test(input) && hasCjk.test(repaired)) {
+      return repaired;
+    }
+
+    const latinNoise = /[\u00c0-\u00ff]/g;
+    const inputNoise = (input.match(latinNoise) || []).length;
+    const repairedNoise = (repaired.match(latinNoise) || []).length;
+    if (inputNoise > 0 && repairedNoise < inputNoise) {
+      return repaired;
+    }
+
+    return input;
+  } catch {
+    return input;
+  }
+}
+
+function repairEmbeddedLatin1Utf8Segments(value) {
+  const input = String(value || "");
+  if (!input) {
+    return "";
+  }
+
+  return input.replace(/[\u0080-\u00ff][\u0080-\u00ff0-9A-Za-z._-]*/g, (segment) => {
+    try {
+      const repaired = Buffer.from(segment, "latin1").toString("utf8");
+      if (!repaired || repaired.includes("\ufffd")) {
+        return segment;
+      }
+      return /[\u3400-\u9fff]/.test(repaired) ? repaired : segment;
+    } catch {
+      return segment;
+    }
+  });
+}
+
+function normalizeDisplayText(value) {
+  const firstPass = tryDecodeLatin1Utf8(value);
+  const secondPass = repairEmbeddedLatin1Utf8Segments(firstPass);
+  return secondPass.trim();
+}
+
+function isExpiredAt(isoString) {
+  if (!isoString) {
+    return false;
+  }
+
+  const time = new Date(isoString).getTime();
+  if (Number.isNaN(time)) {
+    return false;
+  }
+
+  return time <= Date.now();
+}
+
+function isOAuthAuthMethod(method) {
+  const normalized = normalizeText(method).toLowerCase();
+  return normalized === "oauth" || normalized === "official-oauth";
 }
 
 const PLATFORM_OVERRIDE_FIELDS = new Set([
@@ -46,6 +122,8 @@ const PLATFORM_OVERRIDE_FIELDS = new Set([
   "noReprint",
   "source",
 ]);
+const SUPPORTED_PLATFORM_IDS = new Set(PLATFORM_CATALOG.map((platform) => platform.id));
+const PLATFORM_NAME_BY_ID = new Map(PLATFORM_CATALOG.map((platform) => [platform.id, platform.name]));
 
 function normalizePlatformOverrides(input = {}, platformIds = []) {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
@@ -141,7 +219,7 @@ function normalizePlatform(platform) {
           : "",
     accountName:
       typeof platform.accountName === "string"
-        ? platform.accountName
+        ? normalizeDisplayText(platform.accountName)
         : DEFAULT_CONNECTED_PLATFORM_IDS.includes(platform.id)
           ? `${platform.name} 示例账号`
           : "",
@@ -153,7 +231,7 @@ function normalizePlatform(platform) {
     tokenType: typeof platform.tokenType === "string" ? platform.tokenType : "",
     scope: typeof platform.scope === "string" ? platform.scope : "",
     accessTokenHint:
-      typeof platform.accessTokenHint === "string" ? platform.accessTokenHint : "",
+      typeof platform.accessTokenHint === "string" ? normalizeDisplayText(platform.accessTokenHint) : "",
     authorizedAt:
       typeof platform.authorizedAt === "string"
         ? platform.authorizedAt
@@ -163,32 +241,51 @@ function normalizePlatform(platform) {
     expiresAt: typeof platform.expiresAt === "string" ? platform.expiresAt : "",
     refreshTokenExpiresAt:
       typeof platform.refreshTokenExpiresAt === "string" ? platform.refreshTokenExpiresAt : "",
-    authNotes: typeof platform.authNotes === "string" ? platform.authNotes : "",
+    authNotes: typeof platform.authNotes === "string" ? normalizeDisplayText(platform.authNotes) : "",
   };
 }
 
 function normalizeTask(task) {
-  const platformIds = Array.isArray(task.platformIds) ? task.platformIds : [];
+  const platformIds = (Array.isArray(task.platformIds) ? task.platformIds : []).filter((platformId) =>
+    SUPPORTED_PLATFORM_IDS.has(platformId),
+  );
+  const platformNames = platformIds
+    .map((platformId) => PLATFORM_NAME_BY_ID.get(platformId))
+    .filter(Boolean);
+  const publishResults = (Array.isArray(task.publishResults) ? task.publishResults : []).filter((item) =>
+    SUPPORTED_PLATFORM_IDS.has(String(item?.platformId || "").trim()),
+  );
 
   return {
     ...task,
+    title: normalizeDisplayText(task.title || ""),
     platformIds,
-    platformNames: Array.isArray(task.platformNames) ? task.platformNames : [],
+    platformNames: platformNames.map((name) => normalizeDisplayText(name)),
     fileIds: Array.isArray(task.fileIds) ? task.fileIds : [],
     fileCount: Number.isFinite(task.fileCount) ? task.fileCount : 0,
     createdAt: task.createdAt || formatDateTime(new Date()),
     updatedAt: task.updatedAt || task.createdAt || formatDateTime(new Date()),
     retryCount: Number.isFinite(task.retryCount) ? task.retryCount : 0,
-    publishResults: Array.isArray(task.publishResults) ? task.publishResults : [],
+    owner: normalizeDisplayText(task.owner || ""),
+    summary: normalizeDisplayText(task.summary || ""),
+    tags: normalizeDisplayText(task.tags || ""),
+    mode: normalizeDisplayText(task.mode || ""),
+    cover: normalizeDisplayText(task.cover || ""),
+    lastError: normalizeDisplayText(task.lastError || ""),
+    publishResults,
     platformOverrides: normalizePlatformOverrides(task.platformOverrides, platformIds),
     lastPublishedAt: typeof task.lastPublishedAt === "string" ? task.lastPublishedAt : "",
-    lastError: typeof task.lastError === "string" ? task.lastError : "",
   };
 }
 
 function normalizeFile(file) {
+  const normalizedName = normalizeDisplayText(file.name || file.originalName || "");
+  const normalizedOriginalName = normalizeDisplayText(file.originalName || normalizedName);
+
   return {
     ...file,
+    name: normalizedName,
+    originalName: normalizedOriginalName,
     sizeBytes: Number.isFinite(file.sizeBytes) ? file.sizeBytes : 0,
     sizeLabel: file.sizeLabel || "未知大小",
     createdAt: file.createdAt || formatDateTime(new Date()),
@@ -198,6 +295,7 @@ function normalizeFile(file) {
 function normalizeLog(log) {
   return {
     ...log,
+    title: normalizeDisplayText(log.title || ""),
     createdAt: log.createdAt || formatClock(new Date()),
   };
 }
@@ -208,7 +306,9 @@ function normalizeDb(input) {
     return defaultDb;
   }
 
-  const platforms = Array.isArray(input.platforms) ? input.platforms : defaultDb.platforms;
+  const platforms = (Array.isArray(input.platforms) ? input.platforms : defaultDb.platforms).filter((platform) =>
+    SUPPORTED_PLATFORM_IDS.has(String(platform?.id || "").trim()),
+  );
   const files = Array.isArray(input.files) ? input.files : defaultDb.files;
   const tasks = Array.isArray(input.tasks) ? input.tasks : defaultDb.tasks;
   const logs = Array.isArray(input.logs) ? input.logs : defaultDb.logs;
@@ -216,7 +316,7 @@ function normalizeDb(input) {
   return {
     platforms: platforms.map(normalizePlatform),
     files: files.map(normalizeFile),
-    tasks: tasks.map(normalizeTask),
+    tasks: tasks.map(normalizeTask).filter((task) => Array.isArray(task.platformIds) && task.platformIds.length > 0),
     logs: logs.map(normalizeLog),
   };
 }
@@ -226,32 +326,54 @@ function isPlatformAuthorizationActive(platform) {
     return false;
   }
 
+  if (IS_ASSISTANT_MODE) {
+    return true;
+  }
+
   const providerId = String(platform.providerId || platform.id || "").trim();
   if (providerId === "douyin") {
-    if (!normalizeText(platform.refreshToken)) {
+    const authMethod = normalizeText(platform.authMethod).toLowerCase();
+    const accessToken = normalizeText(platform.accessToken);
+    const refreshToken = normalizeText(platform.refreshToken);
+    const requiresOAuthToken = isOAuthAuthMethod(authMethod) || Boolean(accessToken || refreshToken);
+
+    // Assistant/manual mode: connected is enough; don't force official OAuth token.
+    if (!requiresOAuthToken) {
+      return true;
+    }
+
+    if (!refreshToken && !accessToken) {
       return false;
     }
 
-    if (platform.refreshTokenExpiresAt) {
-      const refreshExpiresAt = new Date(platform.refreshTokenExpiresAt);
-      if (!Number.isNaN(refreshExpiresAt.getTime()) && refreshExpiresAt.getTime() <= Date.now()) {
-        return false;
-      }
+    if (refreshToken && isExpiredAt(platform.refreshTokenExpiresAt)) {
+      return false;
+    }
+
+    if (!refreshToken && isExpiredAt(platform.expiresAt)) {
+      return false;
     }
 
     return true;
   }
 
   if (providerId === "bilibili") {
-    if (!normalizeText(platform.accessToken)) {
+    const authMethod = normalizeText(platform.authMethod).toLowerCase();
+    const accessToken = normalizeText(platform.accessToken);
+    const refreshToken = normalizeText(platform.refreshToken);
+    const requiresOAuthToken = isOAuthAuthMethod(authMethod) || Boolean(accessToken || refreshToken);
+
+    // Assistant/manual mode: connected is enough; don't force official OAuth token.
+    if (!requiresOAuthToken) {
+      return true;
+    }
+
+    if (!accessToken) {
       return false;
     }
 
-    if (platform.expiresAt) {
-      const expiresAt = new Date(platform.expiresAt);
-      if (!Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() <= Date.now()) {
-        return false;
-      }
+    if (isExpiredAt(platform.expiresAt)) {
+      return false;
     }
 
     return true;
@@ -261,12 +383,7 @@ function isPlatformAuthorizationActive(platform) {
     return true;
   }
 
-  const expiresAt = new Date(platform.expiresAt);
-  if (Number.isNaN(expiresAt.getTime())) {
-    return true;
-  }
-
-  return expiresAt.getTime() > Date.now();
+  return !isExpiredAt(platform.expiresAt);
 }
 
 function publicPlatformView(platform) {
@@ -279,10 +396,12 @@ function publicPlatformView(platform) {
   delete view.refreshToken;
 
   view.authReady = isPlatformAuthorizationActive(platform);
-  const realProvider = view.providerId === "douyin" || view.providerId === "bilibili";
+  const strictOAuthProvider =
+    (view.providerId === "douyin" || view.providerId === "bilibili") &&
+    isOAuthAuthMethod(view.authMethod);
   view.authStatus = view.authReady
     ? "ready"
-    : realProvider
+    : strictOAuthProvider
       ? "waiting"
       : view.connected
         ? "connected"
@@ -310,7 +429,12 @@ function loadDbFromDisk() {
       return defaultDb;
     }
 
-    return normalizeDb(JSON.parse(raw));
+    const parsed = JSON.parse(raw);
+    const normalized = normalizeDb(parsed);
+    if (JSON.stringify(parsed) !== JSON.stringify(normalized)) {
+      fs.writeFileSync(DB_FILE, JSON.stringify(normalized, null, 2), "utf8");
+    }
+    return normalized;
   } catch (error) {
     console.warn("Failed to read db file, using seed data", error);
     const defaultDb = createDefaultDb();
@@ -507,9 +631,11 @@ export function addFiles(fileRecords = []) {
   const skipped = [];
 
   for (const fileRecord of fileRecords) {
+    const normalizedName = normalizeDisplayText(fileRecord.name || fileRecord.originalName || "");
+    const normalizedOriginalName = normalizeDisplayText(fileRecord.originalName || normalizedName);
     const existing = db.files.find(
       (file) =>
-        file.name === fileRecord.name &&
+        normalizeDisplayText(file.name) === normalizedName &&
         file.sizeBytes === fileRecord.sizeBytes &&
         file.mimeType === fileRecord.mimeType,
     );
@@ -521,8 +647,8 @@ export function addFiles(fileRecords = []) {
 
     const normalized = {
       id: fileRecord.id || `file-${randomUUID()}`,
-      name: fileRecord.name,
-      originalName: fileRecord.originalName || fileRecord.name,
+      name: normalizedName,
+      originalName: normalizedOriginalName,
       sizeBytes: Number.isFinite(fileRecord.sizeBytes) ? fileRecord.sizeBytes : 0,
       sizeLabel: fileRecord.sizeLabel || "未知大小",
       mimeType: fileRecord.mimeType || "",
@@ -571,7 +697,7 @@ export function updateTask(taskId, patch = {}) {
   return clone(task);
 }
 
-export function createTaskRecord(input = {}) {
+export function createTaskRecord(input = {}, options = {}) {
   const title = normalizeText(input.title);
   if (!title) {
     throw new Error("请先填写分发标题");
@@ -599,7 +725,7 @@ export function createTaskRecord(input = {}) {
     (platform) => !isPlatformAuthorizationActive(platform),
   );
 
-  if (unauthorizedPlatforms.length) {
+  if (unauthorizedPlatforms.length && !options.allowUnauthorized) {
     throw new Error(
       `以下平台尚未完成可发布授权：${unauthorizedPlatforms.map((platform) => platform.name).join(" / ")}`,
     );

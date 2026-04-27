@@ -123,6 +123,8 @@ export const distributionApi = {
   },
   createTask: (payload) => request("/tasks", { method: "POST", body: payload }),
   retryTask: (taskId) => request(`/tasks/${taskId}/retry`, { method: "POST" }),
+  launchTaskAssistant: (taskId) => request(`/tasks/${taskId}/assistant/launch`, { method: "POST" }),
+  getTaskAssistantPlan: (taskId) => request(`/tasks/${taskId}/assistant/plan`),
   listLogs: (limit = 20) => request(`/logs?limit=${limit}`),
   authorizePlatform: (platformId, payload) =>
     request(`/platforms/${platformId}/authorize`, { method: "POST", body: payload }),

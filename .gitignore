@@ -10,6 +10,7 @@ pnpm-debug.log*
 server/data/db.json
 server/uploads/*
 !server/uploads/.gitkeep
+server/data/publish-assistant-browser/
 dev-*.log
 vite-*.log
 tmp_*

@@ -1,4 +1,4 @@
-import { distributionApi } from "../api/distributionApi.js";
+﻿import { distributionApi } from "../api/distributionApi.js";
 
 const STATUS = { all: "全部", queued: "排队中", publishing: "发布中", success: "发布成功", failed: "发布失败", draft: "待提交" };
 const AUTH = { ready: "已授权", connected: "已接入", waiting: "待授权" };
@@ -7,7 +7,6 @@ const PREVIEW_LABELS = {
   wechat_channels: "视频号预览页",
   wechat: "视频号预览页",
   redbook: "小红书预览页",
-  kuaishou: "快手预览页",
   bilibili: "B站稿件预览页",
 };
 const PLATFORM_EXTRA_FIELDS = {
@@ -16,25 +15,21 @@ const PLATFORM_EXTRA_FIELDS = {
     { key: "visibility", label: "可见范围", placeholder: "公开 / 好友可见 / 私密" },
   ],
   bilibili: [
-    { key: "tid", label: "B站分区ID", placeholder: "例如：201，按B站后台为准" },
+    { key: "tid", label: "B站分区ID", placeholder: "例如：21（以B站后台分区为准）" },
     { key: "copyright", label: "版权声明", placeholder: "原创 / 转载" },
     { key: "source", label: "转载来源", placeholder: "原创内容可留空" },
   ],
   redbook: [
     { key: "noteType", label: "笔记类型", placeholder: "视频笔记 / 图文笔记" },
-    { key: "topics", label: "小红书话题", placeholder: "例如：学习方法 AI课程" },
-  ],
-  kuaishou: [
-    { key: "topics", label: "快手话题", placeholder: "例如：课程干货" },
-    { key: "visibility", label: "可见范围", placeholder: "公开 / 私密" },
+    { key: "topics", label: "小红书话题", placeholder: "例如：#学习方法 #AI课程" },
   ],
   wechat: [
     { key: "publishAccount", label: "视频号身份", placeholder: "默认视频号" },
-    { key: "topics", label: "视频号话题", placeholder: "例如：AI学习" },
+    { key: "topics", label: "视频号话题", placeholder: "例如：#AI学习" },
   ],
   wechat_channels: [
     { key: "publishAccount", label: "视频号身份", placeholder: "默认视频号" },
-    { key: "topics", label: "视频号话题", placeholder: "例如：AI学习" },
+    { key: "topics", label: "视频号话题", placeholder: "例如：#AI学习" },
   ],
 };
 const FALLBACK_EXTRA_FIELDS = [
@@ -45,6 +40,9 @@ const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp"]);
 const DOCUMENT_EXTENSIONS = new Set([".pdf", ".doc", ".docx"]);
 const SUPPORTED_UPLOAD_HINT = "支持 mp4 / mov / m4v / webm 视频，以及 jpg / png / pdf / docx 等素材。";
 const $ = (id) => document.getElementById(id);
+const WORKBENCH_ONLY_MODE = String(import.meta.env.VITE_WORKBENCH_ONLY_MODE || "1").trim() !== "0";
+const AUTO_LOGIN_USERNAME = String(import.meta.env.VITE_AUTO_LOGIN_USERNAME || "admin").trim();
+const AUTO_LOGIN_PASSWORD = String(import.meta.env.VITE_AUTO_LOGIN_PASSWORD || "admin123");
 
 const esc = (v) =>
   String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -60,7 +58,7 @@ const toLocal = (v) => {
 const progress = (v) => Math.max(0, Math.min(100, Math.round(Number(v) || 0)));
 const splitTags = (value) =>
   String(value || "")
-    .split(/[,\s，、]+/)
+    .split(/[,\s]+/)
     .map((item) => item.trim())
     .filter(Boolean)
     .slice(0, 5);
@@ -99,6 +97,8 @@ const fileKindLabel = (file) => ({
 }[getFileKind(file)] || "文件");
 
 const isAllowedUploadFile = (file) => getFileKind(file) !== "other";
+const buildFilePreviewKey = (file) =>
+  `${file?.name || file?.originalName || ""}::${file?.size || file?.sizeBytes || ""}::${file?.type || file?.mimeType || ""}`;
 
 const authLabel = (p) => AUTH[p?.authStatus] || AUTH.waiting;
 const authTone = (p) => (p?.authReady ? "connected" : "waiting");
@@ -125,12 +125,10 @@ export function createDistributionApp(doc) {
     currentUserPill: $("currentUserPill"),
     apiStatusPill: $("apiStatusPill"),
     searchInput: $("searchInput"),
-    jumpToFormButton: $("jumpToFormButton"),
     fileInput: $("fileInput"),
     dropZone: $("dropZone"),
     fileList: $("fileList"),
     materialHint: $("materialHint"),
-    platformGrid: $("platformGrid"),
     selectedPlatformSummary: $("selectedPlatformSummary"),
     authPlatformSelect: $("authPlatformSelect"),
     platformAuthForm: $("platformAuthForm"),
@@ -140,12 +138,9 @@ export function createDistributionApp(doc) {
     taskForm: $("taskForm"),
     taskTableBody: $("taskTableBody"),
     emptyState: $("emptyState"),
-    logList: $("logList"),
     toastStack: $("toastStack"),
     sidebarTaskCount: $("sidebarTaskCount"),
     sidebarSuccessRate: $("sidebarSuccessRate"),
-    connectedPlatformCount: $("connectedPlatformCount"),
-    fileCount: $("fileCount"),
     metricTaskCount: $("metricTaskCount"),
     metricPlatformCount: $("metricPlatformCount"),
     metricSuccessRate: $("metricSuccessRate"),
@@ -165,6 +160,8 @@ export function createDistributionApp(doc) {
     activeAuthPlatformId: "",
     selectedFileIds: new Set(),
     previewMediaIndexByPlatformId: {},
+    localPreviewUrlsByKey: new Map(),
+    localPreviewUrlsByFileId: new Map(),
     refreshTimer: 0,
     refreshPromise: null,
     apiOnline: false,
@@ -173,6 +170,7 @@ export function createDistributionApp(doc) {
     authVisible: false,
     platformOverrides: {},
     draft: null,
+    publishMode: "assistant",
   };
 
   const setText = (node, text) => node && (node.textContent = text == null ? "" : String(text));
@@ -250,6 +248,7 @@ export function createDistributionApp(doc) {
     return payload;
   };
   const getSelectedFiles = () => state.files.filter((file) => state.selectedFileIds.has(file.id));
+  const isAssistantMode = () => state.publishMode === "assistant";
   const isImageFile = (file) => getFileKind(file) === "image";
   const isVideoFile = (file) => getFileKind(file) === "video";
   const getPreviewMediaFiles = () => {
@@ -260,6 +259,13 @@ export function createDistributionApp(doc) {
     ];
 
     return (media.length ? media : selected).slice(0, 5);
+  };
+  const getPreviewMediaUrl = (file) => {
+    if (!file) return "";
+    const localUrl =
+      state.localPreviewUrlsByFileId.get(file.id) ||
+      state.localPreviewUrlsByKey.get(buildFilePreviewKey(file));
+    return localUrl || (file.downloadUrl ? String(file.downloadUrl) : "");
   };
   const getPreviewLabel = (platform) => PREVIEW_LABELS[platform.providerId] || `${platform.name}预览页`;
   const getPreviewDescription = (platform) => {
@@ -288,6 +294,13 @@ export function createDistributionApp(doc) {
     setTimeout(() => node.remove(), 3200);
   };
   const showLogin = (message = "") => {
+    if (WORKBENCH_ONLY_MODE) {
+      showApp();
+      if (message) {
+        setPill(el.apiStatusPill, "warning", message);
+      }
+      return;
+    }
     setHidden(el.siteHome, false);
     setHidden(el.authScreen, !state.authVisible);
     setHidden(el.appShell, true);
@@ -370,6 +383,7 @@ export function createDistributionApp(doc) {
     state.files = Array.isArray(data.files) ? data.files : [];
     state.tasks = Array.isArray(data.tasks) ? data.tasks : [];
     state.logs = Array.isArray(data.logs) ? data.logs : [];
+    state.publishMode = data.publishMode || state.publishMode || "assistant";
     state.apiOnline = true;
     if (!state.activeAuthPlatformId || !getPlatform(state.activeAuthPlatformId)) state.activeAuthPlatformId = state.platforms[0]?.id || "";
     ensureFilesSelected();
@@ -382,8 +396,6 @@ export function createDistributionApp(doc) {
     const successRate = s.successRate ?? 0;
     setText(el.sidebarTaskCount, taskCount);
     setText(el.sidebarSuccessRate, `${successRate}%`);
-    setText(el.connectedPlatformCount, connected);
-    setText(el.fileCount, s.fileCount ?? state.files.length);
     setText(el.metricTaskCount, taskCount);
     setText(el.metricPlatformCount, connected);
     setText(el.metricSuccessRate, `${successRate}%`);
@@ -410,11 +422,12 @@ export function createDistributionApp(doc) {
           ? Math.max(0, Math.min(mediaFiles.length - 1, Number.isFinite(desiredIndex) ? desiredIndex : 0))
           : 0;
         const activeFile = mediaFiles[activeIndex] || null;
-        const mainUrl = activeFile?.downloadUrl ? String(activeFile.downloadUrl) : "";
+        const mainUrl = getPreviewMediaUrl(activeFile);
+        const isActiveVideo = Boolean(mainUrl && isVideoFile(activeFile));
 
         let mainMarkup = "";
-        if (mainUrl && isVideoFile(activeFile)) {
-          mainMarkup = `<video src="${esc(mainUrl)}" controls muted playsinline preload="metadata"></video>`;
+        if (isActiveVideo) {
+          mainMarkup = `<video src="${esc(mainUrl)}" controls playsinline preload="auto" data-preview-video="${esc(activeFile.id || "")}"></video><span class="platform-preview-error" hidden>视频预览加载失败，请确认视频为浏览器可播放的 H.264 MP4。</span>`;
         } else if (mainUrl && isImageFile(activeFile)) {
           mainMarkup = `<img src="${esc(mainUrl)}" alt="${esc(preview.title)} 预览" />`;
         } else if (mainUrl) {
@@ -422,11 +435,17 @@ export function createDistributionApp(doc) {
         } else {
           mainMarkup = `<div class="platform-preview-placeholder"><strong>${esc(preview.label)}</strong><span>待上传素材</span></div>`;
         }
+        const videoActionsMarkup = isActiveVideo
+          ? `<div class="platform-preview-actions">
+              <button class="platform-preview-play" type="button" data-action="toggle-preview-video" data-platform-id="${esc(p.id)}">播放 / 暂停</button>
+              <a class="platform-preview-open" href="${esc(mainUrl)}" target="_blank" rel="noreferrer">打开原视频</a>
+            </div>`
+          : "";
 
         const galleryMarkup = mediaFiles.length > 1
           ? `<div class="platform-preview-gallery" aria-label="素材预览缩略图">
               ${mediaFiles.map((file, idx) => {
-                const url = file?.downloadUrl ? String(file.downloadUrl) : "";
+                const url = getPreviewMediaUrl(file);
                 const active = idx === activeIndex ? "active" : "";
                 const label = `${preview.label} 素材 ${idx + 1}`;
                 const thumbMedia = url && isVideoFile(file)
@@ -467,6 +486,7 @@ export function createDistributionApp(doc) {
               ${mainMarkup}
               <span class="platform-preview-mode">${esc(preview.mode)}</span>
             </div>
+            ${videoActionsMarkup}
             ${galleryMarkup}
             <div class="platform-preview-body">
               <strong class="platform-preview-title" data-preview-title>${esc(preview.title)}</strong>
@@ -519,7 +539,7 @@ export function createDistributionApp(doc) {
           <div class="task-actions">
             <button class="task-action" type="button" data-action="toggle-platform" data-platform-id="${esc(p.id)}">${p.selected ? "取消选择" : "选择平台"}</button>
             <button class="task-action" type="button" data-action="prefill-platform" data-platform-id="${esc(p.id)}">编辑配置</button>
-            ${p.providerId === "douyin" || p.providerId === "bilibili" ? `<button class="task-action" type="button" data-action="start-oauth" data-platform-id="${esc(p.id)}">${oauthButtonLabel(p)}</button>` : ""}
+            ${!isAssistantMode() && (p.providerId === "douyin" || p.providerId === "bilibili") ? `<button class="task-action" type="button" data-action="start-oauth" data-platform-id="${esc(p.id)}">${oauthButtonLabel(p)}</button>` : ""}
           </div>
         </article>`;
       }).join("");
@@ -535,7 +555,7 @@ export function createDistributionApp(doc) {
     el.fileList.innerHTML = state.files.map((f) => {
       const selected = state.selectedFileIds.has(f.id);
       const kind = getFileKind(f);
-      const url = f.downloadUrl ? String(f.downloadUrl) : "";
+      const url = getPreviewMediaUrl(f);
       const previewMarkup = isVideoFile(f) && url
         ? `<video class="file-preview-media" src="${esc(url)}" muted playsinline preload="metadata"></video>`
         : isImageFile(f) && url
@@ -568,21 +588,17 @@ export function createDistributionApp(doc) {
     el.taskTableBody.innerHTML = list.map((t) => {
       const results = Array.isArray(t.publishResults) ? t.publishResults : [];
       const retry = t.status === "failed" ? `<button class="task-action" type="button" data-action="retry-task" data-task-id="${esc(t.id)}">重试</button>` : "";
+      const assistantAction = isAssistantMode() ? `<button class="task-action" type="button" data-action="launch-assistant" data-task-id="${esc(t.id)}">打开助手</button>` : "";
       return `<tr>
         <td><div class="task-title">${esc(t.title)}</div><div class="platform-subnote">${esc(t.owner || "")} · ${esc(t.schedule || "")}</div></td>
         <td><div class="platform-badges">${(t.platformNames || []).map((n) => `<span class="platform-badge">${esc(n)}</span>`).join("") || '<span class="platform-badge">未选择</span>'}</div></td>
         <td><span class="task-status ${STATUS[t.status] ? t.status : "draft"}">${esc(STATUS[t.status] || t.status || "待提交")}</span>${t.lastError ? `<div class="platform-subnote">${esc(t.lastError)}</div>` : ""}</td>
         <td><div class="progress"><span style="width:${progress(t.progress)}%"></span></div><div class="progress-label">${progress(t.progress)}%${results.length ? ` · ${esc(summarize(results))}` : ""}</div></td>
         <td>${esc(t.createdAt || "")}</td>
-        <td><div class="task-actions"><button class="task-action" type="button" data-action="copy-task-id" data-task-id="${esc(t.id)}">复制ID</button>${retry}</div></td>
+        <td><div class="task-actions">${assistantAction}<button class="task-action" type="button" data-action="copy-task-id" data-task-id="${esc(t.id)}">复制ID</button>${retry}</div></td>
       </tr>`;
     }).join("");
     setHidden(el.emptyState, list.length > 0);
-  }
-
-  function renderLogs() {
-    if (!el.logList) return;
-    el.logList.innerHTML = state.logs.length ? state.logs.slice(0, 8).map((l) => `<div class="log-item"><strong>${esc(l.title)}</strong><time>${esc(l.createdAt || "")}</time></div>`).join("") : `<div class="empty-state"><strong>暂无日志</strong><span>操作记录会显示在这里。</span></div>`;
   }
 
   function renderFilters() {
@@ -596,7 +612,6 @@ export function createDistributionApp(doc) {
     renderPlatforms();
     renderFiles();
     renderTasks();
-    renderLogs();
     renderFilters();
   }
 
@@ -613,6 +628,19 @@ export function createDistributionApp(doc) {
       if (!distributionApi.getAuthToken()) {
         stopPolling();
         state.user = null;
+        if (WORKBENCH_ONLY_MODE) {
+          showApp();
+          void trySilentLogin().then((reloginOk) => {
+            if (reloginOk) {
+              startPolling();
+              void refreshData({ silent: true });
+              return;
+            }
+            setPill(el.apiStatusPill, "warning", "Silent login failed");
+            return;
+          });
+          return;
+        }
         showLogin(error.message || "请先登录");
         return;
       }
@@ -636,10 +664,12 @@ export function createDistributionApp(doc) {
     if (action === "start-oauth") return handleStartOAuth(platformId);
     if (action === "revoke-platform") return handleRevokePlatform(platformId);
     if (action === "preview-media") return handlePreviewMedia(platformId, mediaIndex);
+    if (action === "toggle-preview-video") return handleTogglePreviewVideo(platformId);
     if (action === "clear-platform-override") return handleClearPlatformOverride(platformId);
     if (action === "toggle-file") return handleToggleFile(fileId);
     if (action === "delete-file") return handleDeleteFile(fileId);
     if (action === "retry-task") return handleRetryTask(taskId);
+    if (action === "launch-assistant") return handleLaunchAssistant(taskId);
     if (action === "copy-task-id") return handleCopyTaskId(taskId);
     return null;
   }
@@ -650,6 +680,24 @@ export function createDistributionApp(doc) {
     const index = Number.parseInt(String(mediaIndex ?? "0"), 10);
     state.previewMediaIndexByPlatformId[id] = Number.isFinite(index) ? index : 0;
     renderPlatforms();
+    return null;
+  }
+
+  async function handleTogglePreviewVideo(platformId) {
+    const card = getPlatformCard(String(platformId || "").trim());
+    const video = card?.querySelector("[data-preview-video]");
+    if (!video) return null;
+
+    try {
+      if (video.paused || video.ended) {
+        await video.play();
+      } else {
+        video.pause();
+      }
+    } catch (error) {
+      toast("视频无法播放", "当前视频编码可能不被浏览器支持，建议转成 H.264 MP4 后再上传。", "error");
+    }
+
     return null;
   }
 
@@ -713,7 +761,30 @@ export function createDistributionApp(doc) {
     void refreshData({ silent: true });
   }
 
+  async function trySilentLogin(preferredCredentials = null) {
+    const username = String(
+      preferredCredentials?.username || el.loginUsername?.value || AUTO_LOGIN_USERNAME || "",
+    ).trim();
+    const password = String(
+      preferredCredentials?.password || el.loginPassword?.value || AUTO_LOGIN_PASSWORD || "",
+    );
+    if (!username || !password) return false;
+    try {
+      const session = await distributionApi.login({ username, password });
+      distributionApi.setAuthToken(session.token);
+      state.user = session.user || null;
+      state.apiOnline = true;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   function openAuthPanel() {
+    if (WORKBENCH_ONLY_MODE) {
+      showApp();
+      return;
+    }
     state.authVisible = true;
     setHidden(el.authScreen, false);
     if (el.loginError) {
@@ -733,7 +804,6 @@ export function createDistributionApp(doc) {
     el.taskForm?.addEventListener("change", () => renderPlatforms());
     el.platformAuthForm?.addEventListener("submit", handlePlatformAuthSubmit);
     el.revokeAuthButton?.addEventListener("click", () => handleRevokePlatform(el.authPlatformSelect?.value || state.activeAuthPlatformId));
-    el.jumpToFormButton?.addEventListener("click", () => el.taskForm?.scrollIntoView({ behavior: "smooth", block: "start" }));
     el.fileInput?.addEventListener("change", (e) => handleFileUpload(e.target?.files));
     el.dropZone?.addEventListener("dragover", (e) => {
       e.preventDefault();
@@ -764,10 +834,6 @@ export function createDistributionApp(doc) {
     });
     el.authPlatformSelect?.addEventListener("change", (e) => fillAuthForm(String(e.target?.value || "").trim(), false));
     el.platformAuthForm?.addEventListener("input", () => { state.formDirty = true; });
-    el.platformGrid?.addEventListener("click", (e) => {
-      const btn = e.target.closest("[data-action]");
-      if (btn) handleAction(btn);
-    });
     el.accountGrid?.addEventListener("click", (e) => {
       const btn = e.target.closest("[data-action]");
       if (btn) handleAction(btn);
@@ -775,6 +841,22 @@ export function createDistributionApp(doc) {
     el.accountGrid?.addEventListener("input", (e) => {
       const field = e.target.closest("[data-override-field]");
       if (field) handlePlatformOverrideInput(field);
+    });
+    el.accountGrid?.addEventListener("error", (e) => {
+      const video = e.target?.closest?.("[data-preview-video]");
+      if (!video) return;
+      const holder = video.closest(".platform-preview-media");
+      const message = holder?.querySelector(".platform-preview-error");
+      if (message) message.hidden = false;
+      holder?.classList.add("preview-error");
+    }, true);
+    ["play", "pause", "ended"].forEach((eventName) => {
+      el.accountGrid?.addEventListener(eventName, (e) => {
+        const video = e.target?.closest?.("[data-preview-video]");
+        if (!video) return;
+        const holder = video.closest(".platform-preview-media");
+        holder?.classList.toggle("is-playing", eventName === "play");
+      }, true);
     });
     el.fileList?.addEventListener("click", (e) => {
       const btn = e.target.closest("[data-action]");
@@ -855,6 +937,14 @@ export function createDistributionApp(doc) {
     }
 
     if (!supported.length) return;
+    supported
+      .filter((file) => isVideoFile(file) || isImageFile(file))
+      .forEach((file) => {
+        const key = buildFilePreviewKey(file);
+        const previousUrl = state.localPreviewUrlsByKey.get(key);
+        if (previousUrl) URL.revokeObjectURL(previousUrl);
+        state.localPreviewUrlsByKey.set(key, URL.createObjectURL(file));
+      });
 
     try {
       const result = await distributionApi.uploadFiles(supported);
@@ -862,6 +952,13 @@ export function createDistributionApp(doc) {
       const addedIds = Array.isArray(result?.added)
         ? result.added.map((file) => file?.id).filter(Boolean)
         : [];
+      if (Array.isArray(result?.added)) {
+        result.added.forEach((file) => {
+          const key = buildFilePreviewKey(file);
+          const localUrl = state.localPreviewUrlsByKey.get(key);
+          if (file?.id && localUrl) state.localPreviewUrlsByFileId.set(file.id, localUrl);
+        });
+      }
       if (addedIds.length) {
         addedIds.forEach((id) => state.selectedFileIds.add(id));
       }
@@ -877,8 +974,18 @@ export function createDistributionApp(doc) {
 
   async function handleDeleteFile(fileId) {
     try {
+      const file = state.files.find((item) => item.id === fileId);
       await distributionApi.deleteFile(fileId);
       state.selectedFileIds.delete(fileId);
+      const localUrl = state.localPreviewUrlsByFileId.get(fileId);
+      if (localUrl) URL.revokeObjectURL(localUrl);
+      state.localPreviewUrlsByFileId.delete(fileId);
+      if (file) {
+        const key = buildFilePreviewKey(file);
+        const keyedUrl = state.localPreviewUrlsByKey.get(key);
+        if (keyedUrl) URL.revokeObjectURL(keyedUrl);
+        state.localPreviewUrlsByKey.delete(key);
+      }
       await refreshData({ silent: true });
       renderPlatforms();
       toast("已删除", "素材已移除。", "success");
@@ -899,7 +1006,7 @@ export function createDistributionApp(doc) {
     const p = getPlatform(platformId);
     if (!p) return;
     const next = !p.selected;
-    if (next && !p.authReady) {
+    if (next && !p.authReady && !isAssistantMode()) {
       toast("请先授权", `${p.name} 还不能进入队列。`, "warn");
       return;
     }
@@ -914,7 +1021,7 @@ export function createDistributionApp(doc) {
 
   function handlePrefillPlatform(platformId) {
     fillAuthForm(platformId, true);
-    toast("已填充", "可以直接编辑授权配置。", "success");
+    toast("已填入", "可以直接编辑授权配置。", "success");
   }
 
   async function handleRevokePlatform(platformId) {
@@ -968,7 +1075,7 @@ export function createDistributionApp(doc) {
     const unauthorized = selectedPlatforms.filter((p) => !p.authReady);
     const selectedFiles = [...state.selectedFileIds].map((id) => state.files.find((f) => f.id === id)).filter(Boolean);
     if (!selectedPlatforms.length) return toast("请选择平台", "至少选择一个目标平台。", "warn");
-    if (unauthorized.length) return toast("存在未授权平台", `${unauthorized.map((p) => p.name).join(" / ")} 还不能发布。`, "warn");
+    if (unauthorized.length && !isAssistantMode()) return toast("存在未授权平台", `${unauthorized.map((p) => p.name).join(" / ")} 还不能发布。`, "warn");
     if (!selectedFiles.length) return toast("请选择素材", "请至少保留一个可发布素材。", "warn");
     if (selectedPlatforms.some((p) => p.providerId === "wechat_channels")) {
       const hasVideo = selectedFiles.some((file) => String(file.mimeType || "").startsWith("video/"));
@@ -978,7 +1085,7 @@ export function createDistributionApp(doc) {
       const hasVideo = selectedFiles.some((file) => String(file.mimeType || "").startsWith("video/"));
       const hasCover = selectedFiles.some((file) => String(file.mimeType || "").startsWith("image/"));
       if (!hasVideo) return toast("B站需要视频", "请先上传至少一个视频素材。", "warn");
-      if (!hasCover) return toast("B站需要封面图", "请先上传一张图片素材作为封面。", "warn");
+      if (!hasCover && !isAssistantMode()) return toast("B站需要封面图", "请先上传一张图片素材作为封面。", "warn");
     }
     const f = new FormData(el.taskForm);
     const btn = el.taskForm.querySelector('button[type="submit"]');
@@ -1015,6 +1122,16 @@ export function createDistributionApp(doc) {
     }
   }
 
+  async function handleLaunchAssistant(taskId) {
+    try {
+      await distributionApi.launchTaskAssistant(taskId);
+      await refreshData({ silent: true });
+      toast("发布助手已打开", "请在弹出的各平台页面核对内容，并手动点击最终发布。", "success");
+    } catch (error) {
+      toast("助手启动失败", error.message || "无法打开本机发布助手。", "error");
+    }
+  }
+
   async function handleCopyTaskId(taskId) {
     try {
       if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(taskId);
@@ -1037,6 +1154,11 @@ export function createDistributionApp(doc) {
     bindEvents();
     if (el.loginUsername && !el.loginUsername.value) el.loginUsername.value = "admin";
     if (el.loginPassword && !el.loginPassword.value) el.loginPassword.value = "admin123";
+    if (WORKBENCH_ONLY_MODE) {
+      state.authVisible = false;
+      showApp();
+      if (el.logoutButton) el.logoutButton.hidden = true;
+    }
 
     if (state.oauthFlash?.platformId) state.activeAuthPlatformId = state.oauthFlash.platformId;
 
@@ -1047,6 +1169,16 @@ export function createDistributionApp(doc) {
             password: String(state.oauthFlash.password || ""),
           }
         : null;
+
+    if (WORKBENCH_ONLY_MODE && !distributionApi.getAuthToken()) {
+      const loginOk = await trySilentLogin(queryLogin);
+      if (!loginOk) {
+        syncAuthOptions();
+        setPill(el.apiStatusPill, "warning", "Silent login failed");
+        toast("Silent login failed", "Workbench loaded but session setup failed.", "warn");
+        return;
+      }
+    }
 
     if (!distributionApi.getAuthToken()) {
       if (queryLogin) {

@@ -124,7 +124,7 @@ export function buildDouyinOAuthUrl({
     throw new Error("请先配置 DOUYIN_CLIENT_KEY");
   }
 
-  const url = buildApiUrl("/platform/oauth/connect/");
+  const url = buildApiUrl("/platform/oauth/connect");
   url.searchParams.set("client_key", CLIENT_KEY);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("scope", scope || DEFAULT_SCOPE);

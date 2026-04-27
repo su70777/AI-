@@ -150,7 +150,7 @@ export function createDefaultDb() {
       makeTask({
         id: "TASK-20260410-02",
         title: "课程引流短片 · 春季班",
-        platformIds: ["douyin", "kuaishou"],
+        platformIds: ["douyin", "bilibili"],
         status: "publishing",
         progress: 62,
         minutesBeforeNow: 45,

@@ -2,6 +2,7 @@ import "dotenv/config";
 import cors from "cors";
 import express from "express";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
@@ -17,11 +18,13 @@ import {
   deleteFile,
   getDb,
   getPlatformById,
+  getTaskById,
   listFiles,
   listTasks,
   resetDb,
   retryTask,
   revokePlatform,
+  updateTask,
   updatePlatform,
 } from "./lib/store.js";
 import { clearAllTaskTimers, scheduleTaskLifecycle } from "./lib/scheduler.js";
@@ -40,6 +43,11 @@ import {
   getBilibiliClientConfig,
   isBilibiliConfigured,
 } from "./lib/providers/bilibili.js";
+import {
+  buildLocalPublishAssistantPlan,
+  launchLocalPublishAssistant,
+  sweepStaleAssistantTasks,
+} from "./lib/localPublishAssistant.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -47,6 +55,8 @@ const ROOT_DIR = path.join(__dirname, "..");
 const DIST_DIR = path.join(ROOT_DIR, "dist");
 const UPLOAD_DIR = path.join(ROOT_DIR, "server", "uploads");
 const PORT = Number(process.env.PORT || 3001);
+const HOST = String(process.env.HOST || "0.0.0.0").trim();
+const PUBLISH_MODE = String(process.env.PUBLISH_MODE || "assistant").trim().toLowerCase();
 const FRONTEND_ORIGIN = String(process.env.APP_FRONTEND_URL || "http://127.0.0.1:5173").replace(
   /\/+$/,
   "",
@@ -57,9 +67,39 @@ const VIDEO_EXTENSIONS = new Set([".mp4", ".mov", ".m4v", ".webm"]);
 const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp"]);
 const DOCUMENT_EXTENSIONS = new Set([".pdf", ".doc", ".docx"]);
 
+function tryDecodeLatin1Utf8(text) {
+  const input = String(text || "");
+  if (!input) return "";
+  try {
+    const repaired = Buffer.from(input, "latin1").toString("utf8");
+    if (!repaired || repaired.includes("\ufffd")) {
+      return input;
+    }
+
+    const cjk = /[\u3400-\u9fff]/;
+    const inputHasCjk = cjk.test(input);
+    const repairedHasCjk = cjk.test(repaired);
+    if (!inputHasCjk && repairedHasCjk) {
+      return repaired;
+    }
+
+    // Fallback: if repaired text has less mojibake-like glyphs, prefer repaired.
+    const mojibakeHint = /[ÃÂÐØÞÝæçéêèëíïìîóöòôúüùûñ]/g;
+    const inputNoise = (input.match(mojibakeHint) || []).length;
+    const repairedNoise = (repaired.match(mojibakeHint) || []).length;
+    return repairedNoise < inputNoise ? repaired : input;
+  } catch {
+    return input;
+  }
+}
+
+function normalizeUploadedOriginalName(text) {
+  return tryDecodeLatin1Utf8(text).trim();
+}
+
 function isSupportedUpload(file) {
   const mimeType = String(file?.mimetype || "").toLowerCase();
-  const ext = path.extname(file?.originalname || "").toLowerCase();
+  const ext = path.extname(normalizeUploadedOriginalName(file?.originalname || "")).toLowerCase();
 
   return (
     mimeType.startsWith("video/") ||
@@ -72,13 +112,116 @@ function isSupportedUpload(file) {
   );
 }
 
+function readMp4Box(buffer, offset, limit = buffer.length) {
+  if (offset + 8 > limit) return null;
+  let size = buffer.readUInt32BE(offset);
+  const type = buffer.toString("ascii", offset + 4, offset + 8);
+  let headerSize = 8;
+
+  if (size === 1) {
+    if (offset + 16 > limit) return null;
+    size = Number(buffer.readBigUInt64BE(offset + 8));
+    headerSize = 16;
+  } else if (size === 0) {
+    size = limit - offset;
+  }
+
+  if (!size || size < headerSize || offset + size > limit) return null;
+  return { offset, size, end: offset + size, type, headerSize };
+}
+
+const MP4_CONTAINER_BOXES = new Set([
+  "moov",
+  "trak",
+  "mdia",
+  "minf",
+  "stbl",
+  "edts",
+  "dinf",
+  "udta",
+  "meta",
+  "ilst",
+]);
+
+function patchMp4ChunkOffsets(buffer, adjust, start = 0, end = buffer.length) {
+  let offset = start;
+  while (offset + 8 <= end) {
+    const box = readMp4Box(buffer, offset, end);
+    if (!box) break;
+
+    if (box.type === "stco") {
+      const countOffset = box.offset + box.headerSize + 4;
+      if (countOffset + 4 <= box.end) {
+        const count = buffer.readUInt32BE(countOffset);
+        let entryOffset = countOffset + 4;
+        for (let index = 0; index < count && entryOffset + 4 <= box.end; index += 1) {
+          const next = buffer.readUInt32BE(entryOffset) + adjust;
+          if (next > 0xffffffff) {
+            throw new Error("MP4 stco offset overflow; cannot optimize this file safely.");
+          }
+          buffer.writeUInt32BE(next, entryOffset);
+          entryOffset += 4;
+        }
+      }
+    } else if (box.type === "co64") {
+      const countOffset = box.offset + box.headerSize + 4;
+      if (countOffset + 4 <= box.end) {
+        const count = buffer.readUInt32BE(countOffset);
+        let entryOffset = countOffset + 4;
+        for (let index = 0; index < count && entryOffset + 8 <= box.end; index += 1) {
+          const next = buffer.readBigUInt64BE(entryOffset) + BigInt(adjust);
+          buffer.writeBigUInt64BE(next, entryOffset);
+          entryOffset += 8;
+        }
+      }
+    } else if (MP4_CONTAINER_BOXES.has(box.type)) {
+      const innerStart =
+        box.type === "meta" ? box.offset + box.headerSize + 4 : box.offset + box.headerSize;
+      patchMp4ChunkOffsets(buffer, adjust, innerStart, box.end);
+    }
+
+    offset = box.end;
+  }
+}
+
+function optimizeMp4ForBrowserPlayback(filePath) {
+  const ext = path.extname(filePath || "").toLowerCase();
+  if (ext !== ".mp4" && ext !== ".m4v") return false;
+
+  const input = fs.readFileSync(filePath);
+  const boxes = [];
+  for (let offset = 0; offset + 8 <= input.length;) {
+    const box = readMp4Box(input, offset);
+    if (!box) break;
+    boxes.push(box);
+    offset = box.end;
+  }
+
+  const ftyp = boxes.find((box) => box.type === "ftyp");
+  const moov = boxes.find((box) => box.type === "moov");
+  const firstMdat = boxes.find((box) => box.type === "mdat");
+  if (!ftyp || !moov || !firstMdat || moov.offset < firstMdat.offset) return false;
+
+  const moovBuffer = Buffer.from(input.subarray(moov.offset, moov.end));
+  patchMp4ChunkOffsets(moovBuffer, moov.size);
+
+  const output = Buffer.concat([
+    input.subarray(0, ftyp.end),
+    moovBuffer,
+    input.subarray(ftyp.end, moov.offset),
+    input.subarray(moov.end),
+  ]);
+  fs.writeFileSync(filePath, output);
+  return true;
+}
+
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => {
     fs.mkdirSync(UPLOAD_DIR, { recursive: true });
     cb(null, UPLOAD_DIR);
   },
   filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname || "");
+    const ext = path.extname(normalizeUploadedOriginalName(file.originalname || ""));
     const storageName = `${Date.now()}-${randomUUID()}${ext}`;
     cb(null, storageName);
   },
@@ -396,6 +539,7 @@ app.get("/api/bootstrap", (req, res) => {
   res.json({
     data: {
       ...buildBootstrap(),
+      publishMode: PUBLISH_MODE,
       user: req.user,
     },
   });
@@ -559,28 +703,39 @@ app.post("/api/files", (req, res) => {
       return sendError(res, new Error("请先选择要上传的文件"));
     }
 
-    const existingKeys = new Set(
-      getDb().files.map((file) => `${file.name}::${file.sizeBytes}::${file.mimeType}`),
-    );
-    const createdFiles = [];
+      const existingKeys = new Set(
+        getDb().files.map((file) => `${file.name}::${file.sizeBytes}::${file.mimeType}`),
+      );
+      const createdFiles = [];
 
-    for (const file of uploadedFiles) {
-      const key = `${file.originalname}::${file.size}::${file.mimetype}`;
-      if (existingKeys.has(key)) {
-        fs.rmSync(file.path, { force: true });
-        continue;
-      }
+      for (const file of uploadedFiles) {
+        const originalName = normalizeUploadedOriginalName(file.originalname || file.filename || "");
+        const key = `${originalName}::${file.size}::${file.mimetype}`;
+        if (existingKeys.has(key)) {
+          fs.rmSync(file.path, { force: true });
+          continue;
+        }
 
       existingKeys.add(key);
-      createdFiles.push({
-        name: file.originalname,
-        originalName: file.originalname,
-        sizeBytes: file.size,
-        sizeLabel: formatBytes(file.size),
-        mimeType: file.mimetype,
+      let previewOptimized = false;
+        try {
+          previewOptimized = optimizeMp4ForBrowserPlayback(file.path);
+        } catch (optimizeError) {
+          console.warn("MP4 preview optimization skipped", {
+            file: originalName,
+            message: optimizeError.message,
+          });
+        }
+        createdFiles.push({
+          name: originalName,
+          originalName: originalName,
+          sizeBytes: file.size,
+          sizeLabel: formatBytes(file.size),
+          mimeType: file.mimetype,
         storageName: file.filename,
         storagePath: file.path,
         downloadUrl: `/uploads/${file.filename}`,
+        previewOptimized,
         createdAt: formatDateTime(new Date()),
       });
     }
@@ -626,10 +781,19 @@ app.get("/api/tasks", (req, res) => {
 
 app.post("/api/tasks", (req, res) => {
   try {
-    const task = createTaskRecord(req.body || {});
+    const assistantMode = PUBLISH_MODE === "assistant";
+    const task = createTaskRecord(req.body || {}, {
+      allowUnauthorized: assistantMode,
+    });
     const platformLabel = task.platformNames.join(" / ");
     addLog(`已创建分发任务：${task.title}，目标平台 ${platformLabel}。`);
-    scheduleTaskLifecycle(task.id);
+    if (assistantMode) {
+      launchLocalPublishAssistant(task.id).catch((assistantError) => {
+        console.error("Local publish assistant failed", assistantError);
+      });
+    } else {
+      scheduleTaskLifecycle(task.id);
+    }
     res.status(201).json({ data: task });
   } catch (error) {
     return sendError(res, error);
@@ -644,8 +808,31 @@ app.post("/api/tasks/:id/retry", (req, res) => {
     }
 
     addLog(`已重试任务 ${task.title}。`);
-    scheduleTaskLifecycle(task.id);
+    if (PUBLISH_MODE === "assistant") {
+      launchLocalPublishAssistant(task.id).catch((assistantError) => {
+        console.error("Local publish assistant failed", assistantError);
+      });
+    } else {
+      scheduleTaskLifecycle(task.id);
+    }
     res.json({ data: task });
+  } catch (error) {
+    return sendError(res, error);
+  }
+});
+
+app.get("/api/tasks/:id/assistant/plan", (req, res) => {
+  try {
+    res.json({ data: buildLocalPublishAssistantPlan(req.params.id) });
+  } catch (error) {
+    return sendError(res, error);
+  }
+});
+
+app.post("/api/tasks/:id/assistant/launch", async (req, res) => {
+  try {
+    const result = await launchLocalPublishAssistant(req.params.id);
+    res.json({ data: result });
   } catch (error) {
     return sendError(res, error);
   }
@@ -664,6 +851,7 @@ app.post("/api/reset", (_req, res) => {
     res.json({
       data: {
         ...buildBootstrap(),
+        publishMode: PUBLISH_MODE,
         summary: computeSummary(db),
       },
     });
@@ -704,6 +892,39 @@ app.use((error, _req, res, _next) => {
   sendError(res, error, 500);
 });
 
-app.listen(PORT, "127.0.0.1", () => {
-  console.log(`API server listening on http://127.0.0.1:${PORT}`);
+function getLanIps() {
+  const interfaces = os.networkInterfaces();
+  const ips = [];
+
+  for (const values of Object.values(interfaces)) {
+    for (const item of values || []) {
+      if (item.family === "IPv4" && !item.internal) {
+        ips.push(item.address);
+      }
+    }
+  }
+
+  return [...new Set(ips)];
+}
+
+app.listen(PORT, HOST, () => {
+  console.log(`API server listening on http://${HOST}:${PORT}`);
+  if (HOST === "0.0.0.0") {
+    const lanIps = getLanIps();
+    if (lanIps.length) {
+      console.log(
+        `LAN access: ${lanIps.map((ip) => `http://${ip}:${PORT}`).join("  |  ")}`,
+      );
+    }
+  }
 });
+
+if (PUBLISH_MODE === "assistant") {
+  setInterval(() => {
+    try {
+      sweepStaleAssistantTasks();
+    } catch (error) {
+      console.warn("sweep stale assistant tasks failed", error);
+    }
+  }, 15000);
+}

@@ -15,11 +15,6 @@ export const PLATFORM_CATALOG = [
     note: "适合内容种草和学习路径拆解。",
   },
   {
-    id: "kuaishou",
-    name: "快手",
-    note: "适合下沉流量与高频内容节奏。",
-  },
-  {
     id: "bilibili",
     name: "B站",
     note: "适合长视频教学与知识型内容沉淀。",
