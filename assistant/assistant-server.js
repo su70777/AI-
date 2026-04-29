@@ -10,12 +10,14 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.join(__dirname, "..");
 const DATA_DIR = path.join(ROOT_DIR, "assistant-data");
+const DOWNLOAD_DIR = path.join(DATA_DIR, "downloads");
 const LOG_FILE = path.join(DATA_DIR, "assistant.log");
 const HOST = String(process.env.ASSISTANT_HOST || "127.0.0.1").trim();
 const PORT = Math.max(1024, Number(process.env.ASSISTANT_PORT || 3047));
-const VERSION = "1.0.0";
+const VERSION = "1.0.2";
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
+fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
 
 function timestamp() {
   return new Date().toISOString();
@@ -27,8 +29,86 @@ function writeLog(message) {
   console.log(message);
 }
 
+function safeFileName(value) {
+  return String(value || "download.bin")
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 180) || "download.bin";
+}
+
+async function downloadPlanFile(file) {
+  if (!file || typeof file !== "object") {
+    return file;
+  }
+
+  if (file.path && fs.existsSync(file.path)) {
+    return file;
+  }
+
+  const downloadUrl = file.downloadUrl || file.download_url || file.url;
+  if (!downloadUrl) {
+    return file;
+  }
+
+  const headers = file.downloadHeaders && typeof file.downloadHeaders === "object" ? file.downloadHeaders : {};
+  const response = await fetch(downloadUrl, { headers });
+  if (!response.ok) {
+    throw new Error(`Download failed for ${file.name || file.id || downloadUrl}: HTTP ${response.status}`);
+  }
+
+  const extension = path.extname(safeFileName(file.name)) || path.extname(new URL(downloadUrl).pathname) || ".bin";
+  const outputName = `${safeFileName(file.id || Date.now())}${extension}`;
+  const outputPath = path.join(DOWNLOAD_DIR, outputName);
+  const buffer = Buffer.from(await response.arrayBuffer());
+  fs.writeFileSync(outputPath, buffer);
+
+  return {
+    ...file,
+    path: outputPath,
+    mimeType: file.mimeType || file.mime_type || response.headers.get("content-type") || "application/octet-stream",
+  };
+}
+
+async function preparePlanFiles(plan) {
+  const items = Array.isArray(plan?.items) ? plan.items : [];
+  const preparedItems = [];
+
+  for (const item of items) {
+    const files = item?.files || {};
+    preparedItems.push({
+      ...item,
+      files: {
+        ...files,
+        video: await downloadPlanFile(files.video),
+        cover: await downloadPlanFile(files.cover),
+      },
+    });
+  }
+
+  return {
+    ...plan,
+    items: preparedItems,
+  };
+}
+
 const app = express();
 
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+  }
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", req.headers["access-control-request-headers"] || "Content-Type");
+  res.setHeader("Access-Control-Allow-Private-Network", "true");
+  if (req.method === "OPTIONS") {
+    res.sendStatus(204);
+    return;
+  }
+  next();
+});
 app.use(cors({ origin: true, credentials: false }));
 app.use(express.json({ limit: "10mb" }));
 
@@ -44,22 +124,21 @@ app.get("/health", (_req, res) => {
 });
 
 app.post("/api/assistant/launch-plan", async (req, res) => {
-  try {
-    const plan = req.body || {};
-    writeLog(`Received assistant plan: ${String(plan.title || plan.taskId || "untitled")}`);
-    const result = await launchAssistantPlan(plan);
-    writeLog(`Assistant plan launched for ${result.results?.length || 0} platform(s).`);
-    res.json({ ok: true, data: result });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    writeLog(`Assistant plan failed: ${message}`);
-    res.status(500).json({
-      ok: false,
-      error: {
-        message,
-      },
+  const plan = req.body || {};
+  const title = String(plan.title || plan.taskId || "untitled");
+  writeLog(`Received assistant plan: ${title}`);
+  res.json({ ok: true, data: { accepted: true, title } });
+
+  Promise.resolve()
+    .then(async () => {
+      const preparedPlan = await preparePlanFiles(plan);
+      const result = await launchAssistantPlan(preparedPlan);
+      writeLog(`Assistant plan launched for ${result.results?.length || 0} platform(s).`);
+    })
+    .catch((error) => {
+      const message = error instanceof Error ? error.stack || error.message : String(error);
+      writeLog(`Assistant plan failed: ${message}`);
     });
-  }
 });
 
 const server = app.listen(PORT, HOST, () => {

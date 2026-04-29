@@ -1,0 +1,66 @@
+[2026-04-27T08:30:40.007Z] Local assistant listening on http://127.0.0.1:3047
+[2026-04-27T08:34:41.961Z] Received assistant plan: 自考规划
+[2026-04-27T08:35:27.810Z] Assistant plan launched for 3 platform(s).
+[2026-04-27T08:38:53.717Z] Received assistant plan: 自考规划
+[2026-04-27T08:39:04.687Z] Assistant plan launched for 3 platform(s).
+[2026-04-27T08:45:16.949Z] Received assistant plan: 自考规划
+[2026-04-27T08:45:38.371Z] Assistant plan launched for 4 platform(s).
+[2026-04-27T08:59:13.460Z] Local assistant listening on http://127.0.0.1:3047
+[2026-04-27T09:00:17.364Z] Received assistant plan: 自考规划
+[2026-04-27T09:00:41.100Z] Assistant plan launched for 4 platform(s).
+[2026-04-27T09:03:23.136Z] Local assistant listening on http://127.0.0.1:3047
+[2026-04-27T09:06:28.903Z] Received assistant plan: 自考规划
+[2026-04-27T09:06:44.337Z] Assistant plan launched for 4 platform(s).
+[2026-04-27T09:41:36.344Z] Received assistant plan: 自考规划
+[2026-04-27T09:42:00.097Z] Assistant plan launched for 4 platform(s).
+[2026-04-28T01:21:27.701Z] Received assistant plan: 自考
+[2026-04-28T01:22:52.814Z] Assistant plan launched for 4 platform(s).
+[2026-04-28T09:56:49.897Z] Local assistant listening on http://127.0.0.1:3047
+[2026-04-28T09:57:21.481Z] Local assistant already running on http://127.0.0.1:3047
+[2026-04-28T09:57:55.748Z] Received assistant plan: 自考
+[2026-04-28T09:57:59.958Z] Assistant plan failed: browserType.launchPersistentContext: Target page, context or browser has been closed
+Browser logs:
+
+<launching> C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe --disable-field-trial-config --disable-background-networking --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-back-forward-cache --disable-breakpad --disable-client-side-phishing-detection --disable-component-extensions-with-background-pages --disable-component-update --no-default-browser-check --disable-default-apps --disable-dev-shm-usage --disable-extensions --disable-features=AvoidUnnecessaryBeforeUnloadCheckSync,BoundaryEventDispatchTracksNodeRemoval,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,Translate,AutoDeElevate,RenderDocument,OptimizationHints --enable-features=CDPScreenshotNewSurface --allow-pre-commit-input --disable-hang-monitor --disable-ipc-flooding-protection --disable-popup-blocking --disable-prompt-on-repost --disable-renderer-backgrounding --force-color-profile=srgb --metrics-recording-only --no-first-run --password-store=basic --use-mock-keychain --no-service-autorun --export-tagged-pdf --disable-search-engine-choice-screen --unsafely-disable-devtools-self-xss-warnings --edge-skip-compat-layer-relaunch --enable-automation --disable-infobars --disable-search-engine-choice-screen --disable-sync --enable-unsafe-swiftshader --no-sandbox --start-maximized --user-data-dir=E:\桌面\VS code\一键多发平台\server\data\publish-assistant-browser --remote-debugging-pipe about:blank
+<launched> pid=4452
+[pid=4452][out] ��������������Ự�д򿪡�
+Call log:
+[2m  - <launching> C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe --disable-field-trial-config --disable-background-networking --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-back-forward-cache --disable-breakpad --disable-client-side-phishing-detection --disable-component-extensions-with-background-pages --disable-component-update --no-default-browser-check --disable-default-apps --disable-dev-shm-usage --disable-extensions --disable-features=AvoidUnnecessaryBeforeUnloadCheckSync,BoundaryEventDispatchTracksNodeRemoval,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,Translate,AutoDeElevate,RenderDocument,OptimizationHints --enable-features=CDPScreenshotNewSurface --allow-pre-commit-input --disable-hang-monitor --disable-ipc-flooding-protection --disable-popup-blocking --disable-prompt-on-repost --disable-renderer-backgrounding --force-color-profile=srgb --metrics-recording-only --no-first-run --password-store=basic --use-mock-keychain --no-service-autorun --export-tagged-pdf --disable-search-engine-choice-screen --unsafely-disable-devtools-self-xss-warnings --edge-skip-compat-layer-relaunch --enable-automation --disable-infobars --disable-search-engine-choice-screen --disable-sync --enable-unsafe-swiftshader --no-sandbox --start-maximized --user-data-dir=E:\桌面\VS code\一键多发平台\server\data\publish-assistant-browser --remote-debugging-pipe about:blank[22m
+[2m  - <launched> pid=4452[22m
+[2m  - [pid=4452][out] ��������������Ự�д򿪡�[22m
+[2m  - [pid=4452] <gracefully close start>[22m
+[2m  - [pid=4452] <kill>[22m
+[2m  - [pid=4452] <will force kill>[22m
+[2m  - [pid=4452] taskkill stderr: ����: û���ҵ����� "4452"��[22m
+[2m  - [pid=4452] <process did exit: exitCode=0, signal=null>[22m
+[2m  - [pid=4452] starting temporary directories cleanup[22m
+[2m  - [pid=4452] finished temporary directories cleanup[22m
+[2m  - [pid=4452] <gracefully close end>[22m
+
+[2026-04-28T09:59:23.919Z] Local assistant already running on http://127.0.0.1:3047
+[2026-04-28T10:00:22.362Z] Local assistant listening on http://127.0.0.1:3047
+[2026-04-28T10:00:56.787Z] Received assistant plan: 自考
+[2026-04-28T10:01:12.424Z] Assistant plan launched for 4 platform(s).
+[2026-04-28T10:02:30.018Z] Received assistant plan: 自考
+[2026-04-28T10:02:42.290Z] Assistant plan launched for 4 platform(s).
+[2026-04-28T10:09:59.874Z] Local assistant listening on http://127.0.0.1:3047
+[2026-04-28T10:10:47.303Z] Received assistant plan: 自考
+[2026-04-28T10:11:00.998Z] Assistant plan launched for 4 platform(s).
+[2026-04-29T01:07:13.631Z] Received assistant plan: test
+[2026-04-29T01:07:29.101Z] Assistant plan launched for 4 platform(s).
+[2026-04-29T01:07:50.694Z] Received assistant plan: test
+[2026-04-29T01:08:03.445Z] Assistant plan launched for 4 platform(s).
+[2026-04-29T01:08:04.504Z] Received assistant plan: test
+[2026-04-29T01:08:16.941Z] Assistant plan launched for 4 platform(s).
+[2026-04-29T01:34:03.866Z] Local assistant listening on http://127.0.0.1:3048
+[2026-04-29T01:34:37.189Z] Local assistant already running on http://127.0.0.1:3047
+[2026-04-29T01:35:02.711Z] Local assistant listening on http://127.0.0.1:3047
+[2026-04-29T02:10:23.654Z] Received assistant plan: 11
+[2026-04-29T02:10:37.382Z] Assistant plan launched for 4 platform(s).
+[2026-04-29T02:14:34.967Z] Local assistant already running on http://127.0.0.1:3047
+[2026-04-29T02:15:16.859Z] Local assistant listening on http://127.0.0.1:3048
+[2026-04-29T02:15:20.486Z] Received assistant plan: quick-test
+[2026-04-29T02:15:20.488Z] Assistant plan failed: Error: No assistant items provided.
+    at launchAssistantPlan (file:///E:/%E6%A1%8C%E9%9D%A2/VS%20code/%E4%B8%80%E9%94%AE%E5%A4%9A%E5%8F%91%E5%B9%B3%E5%8F%B0/server/lib/localPublishAssistant.js:1421:11)
+    at file:///E:/%E6%A1%8C%E9%9D%A2/VS%20code/%E4%B8%80%E9%94%AE%E5%A4%9A%E5%8F%91%E5%B9%B3%E5%8F%B0/assistant/assistant-server.js:135:28
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)

@@ -43,6 +43,7 @@ const $ = (id) => document.getElementById(id);
 const WORKBENCH_ONLY_MODE = String(import.meta.env.VITE_WORKBENCH_ONLY_MODE || "1").trim() !== "0";
 const AUTO_LOGIN_USERNAME = String(import.meta.env.VITE_AUTO_LOGIN_USERNAME || "admin").trim();
 const AUTO_LOGIN_PASSWORD = String(import.meta.env.VITE_AUTO_LOGIN_PASSWORD || "admin123");
+const LOCAL_ASSISTANT_BASE_URLS = ["http://127.0.0.1:3047", "http://localhost:3047"];
 
 const esc = (v) =>
   String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -62,6 +63,69 @@ const splitTags = (value) =>
     .map((item) => item.trim())
     .filter(Boolean)
     .slice(0, 5);
+
+const normalizeAssistantDownloadUrl = (rawUrl) => {
+  if (!rawUrl) return "";
+  try {
+    const parsed = new URL(rawUrl, window.location.origin);
+    if (["127.0.0.1", "localhost"].includes(parsed.hostname)) {
+      return `${window.location.origin}${parsed.pathname}${parsed.search}${parsed.hash}`;
+    }
+    return parsed.toString();
+  } catch (error) {
+    return rawUrl;
+  }
+};
+
+const prepareAssistantFile = (file) => {
+  if (!file) return file;
+  const downloadUrl = normalizeAssistantDownloadUrl(file.downloadUrl || file.download_url || file.url);
+  return { ...file, downloadUrl, url: downloadUrl };
+};
+
+const prepareAssistantPlanForLocal = (plan) => ({
+  ...plan,
+  items: (plan.items || []).map((item) => ({
+    ...item,
+    files: {
+      ...(item.files || {}),
+      video: prepareAssistantFile(item.files?.video),
+      cover: prepareAssistantFile(item.files?.cover),
+    },
+  })),
+});
+
+async function ensureLocalAssistantReady() {
+  for (const baseUrl of LOCAL_ASSISTANT_BASE_URLS) {
+    try {
+      const response = await fetch(`${baseUrl}/health`, { method: "GET" });
+      if (response.ok) return baseUrl;
+    } catch (error) {
+      // Try the next loopback hostname.
+    }
+  }
+  throw new Error("本机发布助手未启动，请先安装并打开助手。");
+}
+
+async function launchPlanOnLocalAssistant(plan, baseUrl) {
+  const preparedPlan = prepareAssistantPlanForLocal(plan);
+  const response = await fetch(`${baseUrl}/api/assistant/launch-plan`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(preparedPlan),
+  });
+  if (!response.ok) {
+    let message = "本机发布助手启动失败，请确认助手已打开。";
+    try {
+      const payload = await response.json();
+      message = payload?.error?.message || payload?.message || message;
+    } catch (error) {
+      // Keep the friendly fallback message.
+    }
+    throw new Error(message);
+  }
+  return response.json();
+}
 
 const summarize = (items = []) => {
   const s = items.reduce((a, i) => ((a[i.status] = (a[i.status] || 0) + 1), a), {});
@@ -1091,7 +1155,7 @@ export function createDistributionApp(doc) {
     const btn = el.taskForm.querySelector('button[type="submit"]');
     if (btn) btn.disabled = true;
     try {
-      await distributionApi.createTask({
+      const task = await distributionApi.createTask({
         title: String(f.get("title") || "").trim(),
         summary: String(f.get("summary") || "").trim(),
         tags: String(f.get("tags") || "").trim(),
@@ -1103,10 +1167,19 @@ export function createDistributionApp(doc) {
         fileIds: selectedFiles.map((f) => f.id),
         platformOverrides: buildPlatformOverridesPayload(selectedPlatforms),
       });
+      toast("正在打开发布助手", "任务已创建，正在发送到本机助手。", "success");
+      const assistantBaseUrl = await ensureLocalAssistantReady();
+      const plan = await distributionApi.getTaskAssistantPlan(task.id);
+      await launchPlanOnLocalAssistant(plan, assistantBaseUrl);
+      await distributionApi.launchTaskAssistant(task.id);
       await refreshData({ silent: true });
-      toast("任务已创建", "分发任务已进入队列。", "success");
+      toast("已发送到本机助手", "助手会在后台下载素材并打开各平台页面，请稍等几秒。", "success");
     } catch (error) {
-      toast("创建失败", error.message || "无法创建分发任务。", "error");
+      if (String(error.message || "").includes("助手")) {
+        toast("任务已创建", error.message || "请先打开本机发布助手后再点打开助手。", "warn");
+      } else {
+        toast("创建失败", error.message || "无法创建分发任务。", "error");
+      }
     } finally {
       if (btn) btn.disabled = false;
     }
@@ -1124,9 +1197,13 @@ export function createDistributionApp(doc) {
 
   async function handleLaunchAssistant(taskId) {
     try {
+      toast("正在打开发布助手", "正在发送任务到本机助手。", "success");
+      const assistantBaseUrl = await ensureLocalAssistantReady();
+      const plan = await distributionApi.getTaskAssistantPlan(taskId);
+      await launchPlanOnLocalAssistant(plan, assistantBaseUrl);
       await distributionApi.launchTaskAssistant(taskId);
       await refreshData({ silent: true });
-      toast("发布助手已打开", "请在弹出的各平台页面核对内容，并手动点击最终发布。", "success");
+      toast("已发送到本机助手", "助手会在后台下载素材并打开各平台页面，请稍等几秒。", "success");
     } catch (error) {
       toast("助手启动失败", error.message || "无法打开本机发布助手。", "error");
     }

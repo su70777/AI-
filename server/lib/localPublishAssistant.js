@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -14,7 +15,14 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.join(__dirname, "..", "..");
-const ASSISTANT_PROFILE_DIR = path.join(ROOT_DIR, "server", "data", "publish-assistant-browser");
+const LEGACY_ASSISTANT_PROFILE_DIR = path.join(ROOT_DIR, "server", "data", "publish-assistant-browser");
+const ASSISTANT_PROFILE_DIR =
+  process.env.PUBLISH_ASSISTANT_PROFILE_DIR ||
+  path.join(
+    process.env.LOCALAPPDATA || os.tmpdir(),
+    "AicgDistributionAssistant",
+    "publish-assistant-browser",
+  );
 
 const BROWSER_CANDIDATES = [
   process.env.PUBLISH_ASSISTANT_BROWSER_PATH,
@@ -164,7 +172,52 @@ const TARGETS = {
   },
 };
 
+const COMMON_VIDEO_UPLOAD_SELECTORS = [
+  'input[type="file"][accept*="video"]',
+  'input[type="file"][accept*=".mp4"]',
+  'input[type="file"][accept*=".mov"]',
+  'input[type="file"]',
+];
+const COMMON_UPLOAD_TRIGGER_SELECTORS = [
+  'button:has-text("上传视频")',
+  'div:has-text("上传视频")',
+  'span:has-text("上传视频")',
+  'button:has-text("点击上传")',
+  '[role="button"]:has-text("上传")',
+  'label:has-text("上传")',
+];
+const COMMON_TITLE_SELECTORS = [
+  'input[placeholder*="标题"]',
+  'textarea[placeholder*="标题"]',
+  '[contenteditable="true"][aria-label*="标题"]',
+  '[contenteditable="true"][data-placeholder*="标题"]',
+  '[role="textbox"][aria-label*="标题"]',
+];
+const COMMON_SUMMARY_SELECTORS = [
+  'textarea[placeholder*="简介"]',
+  'textarea[placeholder*="描述"]',
+  'textarea[placeholder*="正文"]',
+  'textarea[placeholder*="内容"]',
+  'textarea[placeholder*="添加"]',
+  '[contenteditable="true"][aria-label*="描述"]',
+  '[contenteditable="true"][aria-label*="正文"]',
+  '[contenteditable="true"][data-placeholder*="描述"]',
+  '[contenteditable="true"][data-placeholder*="正文"]',
+  '[role="textbox"][contenteditable="true"]',
+];
+const COMMON_PUBLISH_KEYWORDS = ["发布", "提交", "投稿", "确认发布", "立即发布", "发布笔记", "发布作品"];
+const COMMON_SUCCESS_KEYWORDS = ["发布成功", "发布完成", "投稿成功", "提交成功", "已发布", "审核中"];
+const COMMON_FAILED_KEYWORDS = ["发布失败", "提交失败", "上传失败", "网络异常", "请求失败", "请重试"];
+
+for (const target of Object.values(TARGETS)) {
+  target.videoInputSelectors = [...COMMON_VIDEO_UPLOAD_SELECTORS, ...(target.videoInputSelectors || [])];
+  target.uploadTriggerSelectors = [...COMMON_UPLOAD_TRIGGER_SELECTORS, ...(target.uploadTriggerSelectors || [])];
+  target.titleSelectors = [...COMMON_TITLE_SELECTORS, ...(target.titleSelectors || [])];
+  target.summarySelectors = [...COMMON_SUMMARY_SELECTORS, ...(target.summarySelectors || [])];
+}
+
 const PUBLISH_CLICK_KEYWORDS = [
+  ...COMMON_PUBLISH_KEYWORDS,
   "发布",
   "提交",
   "投稿",
@@ -204,8 +257,47 @@ const ASSISTANT_AUTOFILL_RETRY_MS = Math.max(
 let browserContextPromise = null;
 const assistantTaskWatchers = new Map();
 const assistantPlatformPages = new Map();
+const externalAssistantWatchers = new Map();
 
 const FINAL_RESULT_STATUSES = new Set(["success", "failed", "skipped", "simulated"]);
+
+function isSamePath(left, right) {
+  return path.resolve(left).toLowerCase() === path.resolve(right).toLowerCase();
+}
+
+function hasBrowserProfileData(profileDir) {
+  return (
+    fs.existsSync(path.join(profileDir, "Local State")) &&
+    fs.existsSync(path.join(profileDir, "Default", "Network", "Cookies"))
+  );
+}
+
+function shouldSkipProfileFile(sourcePath) {
+  const name = path.basename(sourcePath).toLowerCase();
+  return (
+    name === "lockfile" ||
+    name.endsWith("-journal") ||
+    name.endsWith(".tmp") ||
+    sourcePath.toLowerCase().includes(`${path.sep}browsermetrics${path.sep}`)
+  );
+}
+
+function migrateLegacyAssistantProfile() {
+  if (isSamePath(LEGACY_ASSISTANT_PROFILE_DIR, ASSISTANT_PROFILE_DIR)) return;
+  if (!hasBrowserProfileData(LEGACY_ASSISTANT_PROFILE_DIR)) return;
+
+  const targetHasProfile = hasBrowserProfileData(ASSISTANT_PROFILE_DIR);
+  const markerPath = path.join(ASSISTANT_PROFILE_DIR, ".migrated-from-legacy-profile");
+  if (targetHasProfile && fs.existsSync(markerPath)) return;
+
+  fs.mkdirSync(path.dirname(ASSISTANT_PROFILE_DIR), { recursive: true });
+  fs.cpSync(LEGACY_ASSISTANT_PROFILE_DIR, ASSISTANT_PROFILE_DIR, {
+    recursive: true,
+    force: true,
+    filter: (sourcePath) => !shouldSkipProfileFile(sourcePath),
+  });
+  fs.writeFileSync(markerPath, new Date().toISOString(), "utf8");
+}
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -379,6 +471,7 @@ async function getBrowserContext() {
     throw new Error("未找到可用浏览器，请先安装 Microsoft Edge 或 Chrome。");
   }
 
+  migrateLegacyAssistantProfile();
   fs.mkdirSync(ASSISTANT_PROFILE_DIR, { recursive: true });
   browserContextPromise = chromium
     .launchPersistentContext(ASSISTANT_PROFILE_DIR, {
@@ -524,11 +617,94 @@ async function tryFill(page, selectors, value) {
   return { filled: false, selector: "" };
 }
 
+async function trySmartFill(page, value, kind = "summary") {
+  const text = normalizeText(value);
+  if (!text || !page || page.isClosed()) return { filled: false, selector: "" };
+
+  const filledByDom = await page
+    .evaluate(
+      ({ inputText, inputKind }) => {
+        const normalize = (value) => String(value || "").replace(/\s+/g, "").trim();
+        const isVisible = (el) => {
+          if (!el) return false;
+          const style = window.getComputedStyle(el);
+          if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
+          const rect = el.getBoundingClientRect();
+          return rect.width > 50 && rect.height > 18;
+        };
+        const setValue = (el, nextValue) => {
+          el.focus?.();
+          if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") {
+            if (el.disabled || el.readOnly) return false;
+            const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), "value")?.set;
+            if (setter) setter.call(el, nextValue);
+            else el.value = nextValue;
+            el.dispatchEvent(new Event("input", { bubbles: true }));
+            el.dispatchEvent(new Event("change", { bubbles: true }));
+            return true;
+          }
+          if (el.isContentEditable) {
+            el.textContent = nextValue;
+            el.dispatchEvent(new InputEvent("input", { bubbles: true, data: nextValue, inputType: "insertText" }));
+            el.dispatchEvent(new Event("change", { bubbles: true }));
+            return true;
+          }
+          return false;
+        };
+        const titleHints = ["标题", "题目", "作品名称", "稿件标题", "视频标题"];
+        const summaryHints = ["简介", "描述", "正文", "内容", "文案", "说明", "添加描述", "视频描述"];
+        const fields = Array.from(document.querySelectorAll("input, textarea, [contenteditable='true'], [role='textbox']"))
+          .filter(isVisible)
+          .map((el, index) => {
+            const hint = normalize([
+              el.getAttribute("placeholder"),
+              el.getAttribute("aria-label"),
+              el.getAttribute("data-placeholder"),
+              el.getAttribute("name"),
+              el.getAttribute("id"),
+              el.className,
+            ].join(" "));
+            const tag = el.tagName;
+            const type = String(el.type || "").toLowerCase();
+            const isTextInput = tag === "INPUT" && !["file", "hidden", "checkbox", "radio", "button", "submit"].includes(type);
+            const editable = tag === "TEXTAREA" || isTextInput || el.isContentEditable || el.getAttribute("role") === "textbox";
+            return { el, index, hint, tag, isTextInput, editable };
+          })
+          .filter((item) => item.editable);
+
+        const hints = inputKind === "title" ? titleHints : summaryHints;
+        const preferred = fields
+          .map((item) => {
+            let score = 0;
+            if (hints.some((hint) => item.hint.includes(hint))) score += 20;
+            if (inputKind === "title" && item.isTextInput) score += 6;
+            if (inputKind === "summary" && item.tag === "TEXTAREA") score += 8;
+            if (inputKind === "summary" && item.el.isContentEditable) score += 7;
+            if (inputKind === "title" && item.tag === "TEXTAREA") score -= 4;
+            if (item.hint.includes("搜索") || item.hint.includes("search")) score -= 30;
+            return { ...item, score };
+          })
+          .filter((item) => item.score > 0)
+          .sort((a, b) => b.score - a.score);
+
+        for (const item of preferred) {
+          if (setValue(item.el, inputText)) return true;
+        }
+        return false;
+      },
+      { inputText: text, inputKind: kind },
+    )
+    .catch(() => false);
+
+  return filledByDom ? { filled: true, selector: `__smart_${kind}__` } : { filled: false, selector: "" };
+}
+
 async function tryFillAnyEditor(page, value) {
   const text = normalizeText(value);
   if (!text) return { filled: false, selector: "" };
 
   const preferred = [
+    ...COMMON_SUMMARY_SELECTORS,
     'textarea[placeholder*="添加描述"]',
     'textarea[placeholder*="视频描述"]',
     'textarea[placeholder*="描述"]',
@@ -813,7 +989,10 @@ async function applyPendingAutofill(item, options = {}) {
   }
 
   if (!nextFilled.title && content.title) {
-    const titleFill = await tryFill(page, target.titleSelectors || [], content.title);
+    let titleFill = await tryFill(page, target.titleSelectors || [], content.title);
+    if (!titleFill.filled) {
+      titleFill = await trySmartFill(page, content.title, "title");
+    }
     if (titleFill.filled) {
       nextFilled.title = true;
       changed = true;
@@ -829,6 +1008,9 @@ async function applyPendingAutofill(item, options = {}) {
       }
       if (!summaryFill.filled && isWechatProvider(item)) {
         summaryFill = await tryFillAnyEditor(page, summaryText);
+      }
+      if (!summaryFill.filled) {
+        summaryFill = await trySmartFill(page, summaryText, "summary");
       }
       if (summaryFill.filled) {
         nextFilled.summary = true;
@@ -1001,6 +1183,63 @@ function stopTaskWatcher(taskId) {
   if (!watcher) return;
   clearInterval(watcher.timer);
   assistantTaskWatchers.delete(taskId);
+}
+
+function stopExternalWatcher(taskId) {
+  const watcher = externalAssistantWatchers.get(taskId);
+  if (!watcher) return;
+  clearInterval(watcher.timer);
+  externalAssistantWatchers.delete(taskId);
+}
+
+function startExternalAutofillWatcher(taskId, taskTitle, trackedItems) {
+  stopExternalWatcher(taskId);
+
+  const watcher = {
+    taskId,
+    taskTitle,
+    items: trackedItems,
+    startedAt: Date.now(),
+    busy: false,
+    timer: null,
+  };
+
+  const tick = async () => {
+    if (watcher.busy) return;
+    watcher.busy = true;
+    try {
+      const now = Date.now();
+      for (const item of watcher.items) {
+        if (!item || item.page?.isClosed?.()) continue;
+        const pendingFields = getPendingAutofillFields(item.filled || createEmptyFilledState());
+        if (!pendingFields.length) continue;
+        if (now - Number(item.lastAutofillAt || 0) < ASSISTANT_AUTOFILL_RETRY_MS) continue;
+        const autofill = await applyPendingAutofill(item, {
+          waitAfterUploadMs: 1200,
+          waitAfterAutofillMs: 100,
+        });
+        item.filled = autofill.filled;
+        item.lastAutofillAt = now;
+      }
+
+      const allFilled = watcher.items.every((item) => {
+        const pendingFields = getPendingAutofillFields(item.filled || createEmptyFilledState());
+        return !pendingFields.length;
+      });
+      const timedOut = now - watcher.startedAt >= ASSISTANT_WATCH_TIMEOUT_MS;
+      if (allFilled || timedOut) {
+        stopExternalWatcher(taskId);
+      }
+    } finally {
+      watcher.busy = false;
+    }
+  };
+
+  watcher.timer = setInterval(() => {
+    tick().catch(() => {});
+  }, ASSISTANT_WATCH_INTERVAL_MS);
+  externalAssistantWatchers.set(taskId, watcher);
+  tick().catch(() => {});
 }
 
 function persistWatcherState(taskId, items, options = {}) {
@@ -1187,6 +1426,24 @@ export async function launchAssistantPlan(inputPlan = {}) {
   for (const item of plan.items) {
     results.push(await automateItem(context, item));
   }
+
+  const trackedItems = results.map((item) => ({
+    platformId: item.platformId,
+    platformName: item.platformName,
+    providerId: item.providerId,
+    status: item.status,
+    message: item.message,
+    page: item._page || null,
+    target: item._target || null,
+    content: item.content || {},
+    files: item.files || {},
+    filled: { ...createEmptyFilledState(), ...(item.filled || {}) },
+    lastAutofillAt: Number(item.lastAutofillAt || 0),
+    clickedAt: Number(item.clickedAt || 0),
+    clickText: item.clickText || "",
+    startedAt: Date.now(),
+  }));
+  startExternalAutofillWatcher(plan.taskId || `external-${Date.now()}`, plan.title, trackedItems);
 
   return {
     ...plan,

@@ -1,5 +1,5 @@
 param(
-  [string]$AppVersion = "1.0.0",
+  [string]$AppVersion = "1.0.2",
   [string]$OutputBaseName = "LocalPublishAssistant-Setup"
 )
 
@@ -89,6 +89,9 @@ setlocal
 set "APP_DIR=%LOCALAPPDATA%\LocalPublishAssistant"
 set "ZIP_FILE=%~dp0assistant-package.zip"
 
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*LocalPublishAssistant*assistant-server.js*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
+
 if not exist "%APP_DIR%" mkdir "%APP_DIR%"
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -LiteralPath '%ZIP_FILE%' -DestinationPath '%APP_DIR%' -Force"
@@ -104,22 +107,34 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$desktopDir=[Environment]::GetFolderPath('Desktop');" ^
   "$target='wscript.exe';" ^
   "$args='"""' + $appDir + '\assistant\run-assistant-hidden.vbs' + '"""';" ^
+  "$manualTarget=$appDir + '\assistant\start-assistant.cmd';" ^
   "$shell=New-Object -ComObject WScript.Shell;" ^
   "$startup=$shell.CreateShortcut((Join-Path $startupDir '本机发布助手.lnk'));" ^
   "$startup.TargetPath=$target;" ^
   "$startup.Arguments=$args;" ^
   "$startup.WorkingDirectory=$appDir;" ^
   "$startup.Save();" ^
+  "$startupEnglish=$shell.CreateShortcut((Join-Path $startupDir 'Local Publish Assistant.lnk'));" ^
+  "$startupEnglish.TargetPath=$target;" ^
+  "$startupEnglish.Arguments=$args;" ^
+  "$startupEnglish.WorkingDirectory=$appDir;" ^
+  "$startupEnglish.Save();" ^
   "$menu=$shell.CreateShortcut((Join-Path $programsDir '本机发布助手.lnk'));" ^
-  "$menu.TargetPath=$target;" ^
-  "$menu.Arguments=$args;" ^
+  "$menu.TargetPath=$manualTarget;" ^
   "$menu.WorkingDirectory=$appDir;" ^
   "$menu.Save();" ^
+  "$menuEnglish=$shell.CreateShortcut((Join-Path $programsDir 'Local Publish Assistant.lnk'));" ^
+  "$menuEnglish.TargetPath=$manualTarget;" ^
+  "$menuEnglish.WorkingDirectory=$appDir;" ^
+  "$menuEnglish.Save();" ^
   "$desktop=$shell.CreateShortcut((Join-Path $desktopDir '本机发布助手.lnk'));" ^
-  "$desktop.TargetPath=$target;" ^
-  "$desktop.Arguments=$args;" ^
+  "$desktop.TargetPath=$manualTarget;" ^
   "$desktop.WorkingDirectory=$appDir;" ^
-  "$desktop.Save();"
+  "$desktop.Save();" ^
+  "$desktopEnglish=$shell.CreateShortcut((Join-Path $desktopDir 'Local Publish Assistant.lnk'));" ^
+  "$desktopEnglish.TargetPath=$manualTarget;" ^
+  "$desktopEnglish.WorkingDirectory=$appDir;" ^
+  "$desktopEnglish.Save();"
 if errorlevel 1 (
   echo Failed to create assistant shortcuts.
   exit /b 1
