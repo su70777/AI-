@@ -3,6 +3,8 @@ import express from "express";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import { launchAssistantPlan } from "../server/lib/localPublishAssistant.js";
 
@@ -37,12 +39,45 @@ function safeFileName(value) {
     .slice(0, 180) || "download.bin";
 }
 
-async function downloadPlanFile(file) {
+function formatMs(ms) {
+  const value = Number(ms || 0);
+  return `${Math.max(0, Math.round(value))}ms`;
+}
+
+function buildPlanFileCacheKey(file) {
+  if (!file || typeof file !== "object") {
+    return "";
+  }
+  const id = String(file.id || "").trim();
+  const url = String(file.downloadUrl || file.download_url || file.url || "").trim();
+  if (!id && !url) {
+    return "";
+  }
+  return `${id}::${url}`;
+}
+
+function resolveDownloadOutput(file, downloadUrl) {
+  const extension =
+    path.extname(safeFileName(file?.name)) ||
+    path.extname(new URL(downloadUrl).pathname) ||
+    ".bin";
+  const outputName = `${safeFileName(file?.id || Date.now())}${extension}`;
+  return {
+    outputName,
+    outputPath: path.join(DOWNLOAD_DIR, outputName),
+  };
+}
+
+async function downloadPlanFile(file, options = {}) {
   if (!file || typeof file !== "object") {
     return file;
   }
 
+  const logPrefix = String(options.logPrefix || "").trim();
+  const fileLabel = String(file.name || file.id || "unnamed-file").trim();
+
   if (file.path && fs.existsSync(file.path)) {
+    writeLog(`${logPrefix}Using provided local file: ${fileLabel}`);
     return file;
   }
 
@@ -51,17 +86,31 @@ async function downloadPlanFile(file) {
     return file;
   }
 
+  const { outputName, outputPath } = resolveDownloadOutput(file, downloadUrl);
+  if (fs.existsSync(outputPath)) {
+    const sizeBytes = fs.statSync(outputPath).size;
+    writeLog(`${logPrefix}Cache hit for ${fileLabel} -> ${outputName} (${sizeBytes} bytes)`);
+    return {
+      ...file,
+      path: outputPath,
+    };
+  }
+
   const headers = file.downloadHeaders && typeof file.downloadHeaders === "object" ? file.downloadHeaders : {};
+  const startedAt = Date.now();
+  writeLog(`${logPrefix}Downloading ${fileLabel} -> ${outputName}`);
   const response = await fetch(downloadUrl, { headers });
   if (!response.ok) {
     throw new Error(`Download failed for ${file.name || file.id || downloadUrl}: HTTP ${response.status}`);
   }
 
-  const extension = path.extname(safeFileName(file.name)) || path.extname(new URL(downloadUrl).pathname) || ".bin";
-  const outputName = `${safeFileName(file.id || Date.now())}${extension}`;
-  const outputPath = path.join(DOWNLOAD_DIR, outputName);
-  const buffer = Buffer.from(await response.arrayBuffer());
-  fs.writeFileSync(outputPath, buffer);
+  if (!response.body) {
+    throw new Error(`Download failed for ${file.name || file.id || downloadUrl}: empty response body`);
+  }
+
+  await pipeline(Readable.fromWeb(response.body), fs.createWriteStream(outputPath));
+  const sizeBytes = fs.statSync(outputPath).size;
+  writeLog(`${logPrefix}Download completed for ${fileLabel} in ${formatMs(Date.now() - startedAt)} (${sizeBytes} bytes)`);
 
   return {
     ...file,
@@ -70,8 +119,27 @@ async function downloadPlanFile(file) {
   };
 }
 
+async function ensurePreparedPlanFile(file, downloadCache, options = {}) {
+  const cacheKey = buildPlanFileCacheKey(file);
+  const logPrefix = String(options.logPrefix || "").trim();
+  if (cacheKey && downloadCache.has(cacheKey)) {
+    writeLog(`${logPrefix}Reusing prepared file for ${String(file?.name || file?.id || cacheKey)}`);
+    return downloadCache.get(cacheKey);
+  }
+
+  const promise = downloadPlanFile(file, options);
+  if (cacheKey) {
+    downloadCache.set(cacheKey, promise);
+  }
+  return promise;
+}
+
 async function preparePlanFiles(plan) {
   const items = Array.isArray(plan?.items) ? plan.items : [];
+  const taskLabel = String(plan?.title || plan?.taskId || "untitled").trim();
+  const logPrefix = `[prepare:${taskLabel}] `;
+  const startedAt = Date.now();
+  const downloadCache = new Map();
   const preparedItems = [];
 
   for (const item of items) {
@@ -80,11 +148,15 @@ async function preparePlanFiles(plan) {
       ...item,
       files: {
         ...files,
-        video: await downloadPlanFile(files.video),
-        cover: await downloadPlanFile(files.cover),
+        video: await ensurePreparedPlanFile(files.video, downloadCache, { logPrefix }),
+        cover: await ensurePreparedPlanFile(files.cover, downloadCache, { logPrefix }),
       },
     });
   }
+
+  writeLog(
+    `${logPrefix}Prepared ${items.length} platform item(s) with ${downloadCache.size} unique remote file(s) in ${formatMs(Date.now() - startedAt)}`,
+  );
 
   return {
     ...plan,

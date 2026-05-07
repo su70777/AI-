@@ -1422,10 +1422,7 @@ export async function launchAssistantPlan(inputPlan = {}) {
   }
 
   const context = await getBrowserContext();
-  const results = [];
-  for (const item of plan.items) {
-    results.push(await automateItem(context, item));
-  }
+  const results = await Promise.all(plan.items.map((item) => automateItem(context, item)));
 
   const trackedItems = results.map((item) => ({
     platformId: item.platformId,
@@ -1470,10 +1467,7 @@ export async function launchLocalPublishAssistant(taskId) {
 
   try {
     const context = await getBrowserContext();
-    const results = [];
-    for (const item of plan.items) {
-      results.push(await automateItem(context, item));
-    }
+    const results = await Promise.all(plan.items.map((item) => automateItem(context, item)));
 
     const trackedItems = results.map((item) => ({
       platformId: item.platformId,
